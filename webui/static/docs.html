@@ -1,0 +1,286 @@
+<div class="docsWrap">
+<aside class="docsNav">
+  <a href="#d-overview">What this is</a>
+  <a href="#d-howitworks">How a case gets sorted</a>
+  <a href="#d-built">How it's built</a>
+  <a href="#d-training">Training guide</a>
+  <a href="#d-floors">Acceptance &amp; floors</a>
+  <a href="#d-testing">Testing &amp; validation</a>
+  <a href="#d-pi">Moving to the Pi</a>
+  <a href="#d-faq">Troubleshooting</a>
+</aside>
+<article class="docsBody">
+
+<h1 id="d-overview">What this is</h1>
+<p>
+SortIQ is the brain of an automatic brass-sorting machine. It looks at
+the head of a fired case through a camera, reads the <b>headstamp</b> (the
+maker's marking, like <i>WIN</i> or <i>FC</i>), and drops the case into the
+matching bin. Anything it isn't sure about goes to the <b>UNMATCHED</b> bin —
+the machine would rather make you re-run a case than put it in the wrong bin.
+</p>
+<table class="docsTable">
+<tr><th>Part</th><th>Job</th><th>Where it runs</th></tr>
+<tr><td><b>This software</b> (Python)</td><td>Camera, AI models, decisions, this web page</td><td>The machine's Raspberry Pi (and any PC, for training or development)</td></tr>
+<tr><td><b>CS7.2 board</b> (Arduino Uno, TMC2209 drivers)</td><td>Motors, sensors, light ring, timing</td><td>On the machine, over USB serial — stock firmware or the SortIQ fork; a faithful simulator stands in when no board is connected</td></tr>
+<tr><td><b>Mechanics</b></td><td>Hopper, feed wheel, imaging nest, sorter arm, bins</td><td>Seth Hahner's CS7.2 design</td></tr>
+</table>
+<p class="docsNote">
+Crimp detection (sorting crimped vs non-crimped primer pockets) was part of
+an earlier design and has been <b>retired for now</b> — flat lighting and
+webcam resolution couldn't resolve it reliably. Sorting is by headstamp only:
+one bin per headstamp, plus unmatched.
+</p>
+
+<h1 id="d-howitworks">How a case gets sorted</h1>
+<div class="flow">
+  <div class="fstep"><b>1 · Photo</b>
+    <span>One photo of the case head, framed by the live crop preview.</span></div>
+  <div class="farrow">↓</div>
+  <div class="fstep"><b>2 · Quality gate</b>
+    <span>The photo must be sharp enough. A blurry photo is rejected before
+    the AI ever sees it — better no guess than a bad guess.</span></div>
+  <div class="farrow">↓</div>
+  <div class="fstep"><b>3 · Embedding match</b>
+    <span>A neural network turns the headstamp crop into a compact
+    <b>fingerprint vector</b>, then compares it against a <b>gallery</b> of
+    exemplar photos — a handful of representative images per headstamp,
+    picked automatically for coverage (you can pin or exclude any on the
+    Dataset page). The closest class wins, with a similarity score.</span></div>
+  <div class="farrow">↓</div>
+  <div class="fstep"><b>4 · Three honesty gates</b>
+    <span>The match must clear that <b>class's own bar</b> (each class earns
+    its bar from how tightly its exemplars agree), and it must be <b>clearly
+    ahead of the runner-up</b> — a near-tie between look-alikes is rejected
+    as "too close to call" rather than coin-flipped. The case is also read
+    at four rotations; disagreement is logged as a warning sign.</span></div>
+  <div class="farrow">↓</div>
+  <div class="fstep"><b>5 · Bin</b>
+    <span>All gates pass → the stamp's bin. Anything less → UNMATCHED, with
+    a plain-language reason ("Too close to call — SPEER 91% vs BLAZER
+    89%").</span></div>
+</div>
+
+<h2>Why matching beats guessing</h2>
+<p>
+Older designs used a classifier that <i>had</i> to pick one of the classes
+it was trained on — a stamp it had never seen would still come out as
+somebody's name, often confidently. The embedding+gallery design is
+<b>open-set</b>: a stranger doesn't resemble anyone's exemplars strongly
+enough to clear the gates, so it lands in UNMATCHED instead of a bin. And
+adding a new headstamp needs <b>no retraining</b> — file 3+ photos and the
+gallery starts matching it immediately.
+</p>
+
+<h2>The rejection philosophy</h2>
+<ul>
+<li><b>Rejected</b> (sent to UNMATCHED): costs you one re-run of that case. Cheap.</li>
+<li><b>Misfiled</b> (wrong bin): silently contaminates a bin. Expensive.</li>
+</ul>
+<p>
+Every threshold exists to trade reject-rate for misfile-rate. When in doubt,
+the machine rejects. Your target is a misfile rate of zero at whatever reject
+rate that costs.
+</p>
+
+<h1 id="d-built">How it's built</h1>
+<table class="docsTable">
+<tr><th>Piece</th><th>What it does</th></tr>
+<tr><td><code>webui/server.py</code></td><td>The application: this web page, the machine loop (case seated → photo → classify → sort command → repeat), and every API both boxes talk over</td></tr>
+<tr><td><code>sorter/embed_classifier.py</code></td><td>The decider — embedding match against the gallery, plus every gate (class bar, runner-up margin, rotation probe)</td></tr>
+<tr><td><code>sorter/imaging.py</code></td><td>Finds the case rim (circle fit on the strongest edge), builds the headstamp crop, measures sharpness</td></tr>
+<tr><td><code>sorter/cs72.py</code> + <code>sorter/cs72_sim.py</code></td><td>The CS7.2 board's serial protocol adapter, and an event-level simulator ported from the firmware — the Machine tab connects to either</td></tr>
+<tr><td><code>sorter/synth.py</code></td><td>Draws artificial case heads so the whole pipeline can be exercised with zero hardware</td></tr>
+<tr><td><code>tools/</code></td><td>The training pipeline (teacher training, student distillation at 480 px, gallery build) — driven from the Train page, runs on the trainer PC, never the Pi</td></tr>
+<tr><td><code>config.json</code> + the profile's <code>model.json</code></td><td>Headstamps, bin map, floors, gallery pins — edited from the UI</td></tr>
+</table>
+
+<h2>The serial protocol (Pi ↔ CS7.2 board)</h2>
+<table class="docsTable">
+<tr><th>Direction</th><th>Message</th><th>Meaning</th></tr>
+<tr><td>controller → app</td><td><code>SEATED</code></td><td>a case is in the imaging nest, ready to photograph</td></tr>
+<tr><td>app → controller</td><td><code>LIGHT:A</code> / <code>LIGHT:OFF</code></td><td>switch the ring light</td></tr>
+<tr><td>app → controller</td><td><code>SORT:&lt;n&gt;</code></td><td>rotate the sort disc to bin <i>n</i> and drop the case</td></tr>
+<tr><td>controller → app</td><td><code>DONE</code></td><td>drop finished, feeding the next case</td></tr>
+<tr><td>controller → app</td><td><code>JAM</code></td><td>feeder fault — app responds with <code>HOME</code></td></tr>
+<tr><td>app → controller</td><td><code>HOME</code></td><td>re-home the feeder and sort disc</td></tr>
+</table>
+<p>
+The <b>Machine</b> tab is a live console for this protocol: connect to the
+real board (or the simulator), press the quick-command buttons or type raw
+lines, and watch both directions of traffic. These are the app-side message
+names; the CS7.2 adapter translates them to the board's own commands
+(<code>&lt;n&gt;</code>, <code>xf:</code>, <code>homesorter</code>, …) on the
+wire.
+</p>
+
+<h1 id="d-training">Growing the dataset — doing it right</h1>
+<p class="docsNote">
+<b>Headstamps and photos</b> are managed on the Collect and Dataset tabs;
+the Sort page assigns each physical bin a headstamp (exactly one bin is
+UNMATCHED, and unassigned headstamps route there too). A class is live in
+the <b>gallery</b> — and therefore sortable — from <b>3 photos</b>; it joins
+the periodic <b>training pass</b> (which sharpens the whole network) at 10+.
+</p>
+
+<h2>Rule 1 — photograph like the machine will see</h2>
+<ul>
+<li>Fix the camera, the case position, and the lighting, and never touch them again mid-dataset.</li>
+<li>Judge quality in the live crop preview: if you can read the stamp easily, the model can learn it. Dark, etched-looking letters on bright metal beat washed-out glare every time.</li>
+<li>Diffuse the light for reflective nickel cases — point light creates glare that burns out exactly the letters you need.</li>
+</ul>
+
+<h2>Rule 2 — quantity targets</h2>
+<table class="docsTable">
+<tr><th>Class size</th><th>What it means</th></tr>
+<tr><td>1–2 photos</td><td>the class exists, waiting for siblings ("needs 3+ to enter the gallery")</td></tr>
+<tr><td>3–9 photos</td><td>live in the gallery — sortable today, skipped by the training pass</td></tr>
+<tr><td>10–300</td><td>full citizen: gallery + training</td></tr>
+<tr><td>300+</td><td>saves are skipped only when <b>pixel-verified as the same physical case already filed</b> (matching scratch pattern at some rotation — re-run brass); distinct cases always file, however alike the stamp looks</td></tr>
+<tr><td>500+</td><td><b>well-fed</b>: batch filing switches from volume to variety — <b>File novel</b> keeps only photos showing the class a genuinely new look and skips routine near-identicals (File all overrides). Hard cases (the "Looks like X" and unknown piles) always file in full — they teach the most.</td></tr>
+</table>
+<p>The Dataset and Train class lists color-code these tiers: <span style="color:var(--red)">red under 10</span>, plain 10–299, <span style="color:var(--amber)">amber 300+</span>, <span style="color:var(--green)">green 500+</span> — sort the list by count and the red tail is your re-photo shopping list.</p>
+<p>
+Two ways to collect: the <b>chained capture loop</b> (Collect tab — feed,
+photograph, one keypress per case, with the model pre-selecting labels) and
+<b>batch capture</b> (run the whole hopper at machine speed, then confirm
+grouped cards — whole groups file with one click, and any case can be
+removed from its group first). Variety beats volume — many different
+physical cases (worn, tarnished, shiny) beat many shots of one case.
+</p>
+
+<h2>Rule 3 — unknown is a state, not a category</h2>
+<p>
+When a stamp you don't recognize shows up (in a reject review or the
+capture flow), choose <b>Set aside — identify later</b>. Set-aside photos
+land in the tray at the top of the Dataset page, <b>clustered by
+similarity</b> so five copies of the same mystery stamp arrive as one
+group. Name the group (the community headstamp list below is the naming
+cheat sheet) and every photo files at once — the class is created and,
+at 3+ photos, starts sorting immediately. The tray exists to be emptied.
+</p>
+
+<h2>Training</h2>
+<ul>
+<li>The gallery handles day-to-day growth with <b>no training at all</b> —
+new classes, new photos, pins and exclusions all take effect at the next
+<b>Rebuild gallery</b> (a few minutes, on either machine).</li>
+<li>A full <b>retraining of the embedding network</b> sharpens everything —
+worth doing after the dataset has grown or shifted substantially. On the
+machine, <b>Train models…</b> (Train tab) opens a window that drives the
+trainer on the PC you're browsing from — sync, device choice, progress,
+result, install, all without leaving this page. Pick <b>GPU</b> (about an
+hour) or <b>CPU</b> (overnight — the trainer stays usable) and press Start. The result is
+staged as a <b>candidate</b> with its bench numbers; nothing replaces the
+live model until you press <b>Install</b>, which archives the current
+generation (restorable from the Train page) and pushes the new model +
+gallery pair to the machine. If the GPU fails, the app asks whether to
+retry it or train on CPU — it never switches by itself.</li>
+<li>After moving/deleting images or changing the crop geometry:
+<b>Rebuild crops</b>, then <b>Rebuild gallery</b>.</li>
+</ul>
+
+<h1 id="d-floors">The gates</h1>
+<table class="docsTable">
+<tr><th>Gate</th><th>What it does</th><th>Where it comes from</th></tr>
+<tr><td><b>Sharpness floor</b></td><td>Minimum photo crispness; catches bumped cameras and mid-drop shots</td><td>rig-specific, set in the profile</td></tr>
+<tr><td><b>Class bar</b></td><td>The match must be at least this similar to the class's exemplars</td><td>earned per class from how tightly its exemplars agree (floor 85%); the Sort page's <b>Acceptance</b> slider shifts every bar together — 85% is neutral, higher is stricter</td></tr>
+<tr><td><b>Runner-up margin</b></td><td>The winner must clearly beat the second-best class — near-ties reject as "too close to call"</td><td>fixed small gap (3%)</td></tr>
+</table>
+<p class="docsNote">
+The bars tune <i>themselves</i> from the gallery — the practical lever is
+the dataset. Lots of correct-but-rejected cases of one stamp → more photos
+of it (especially the looks it rejects on), then rebuild the gallery. A
+misfiled case → find it in the run report, refile it to the right class,
+and check that class for mislabeled images (Scan for mislabels).
+</p>
+
+<h1 id="d-testing">Testing &amp; validation</h1>
+<ul>
+<li><b>Test tab:</b> classify from the live camera, an upload, or a synthetic
+case. Every gate shows its measured value, the bars show the closest gallery
+matches (winner and runner-up with their similarities), and the disc shows
+the destination bin. A reject explains itself in plain language.</li>
+<li><b>Test → Add to training data:</b> when the model gets one wrong, correct
+the label and save it — the images it struggles with are the most valuable
+training data there is. The Test tab is also the mislabel detective: if a
+known case matches the wrong class, the runner-up trail usually leads to a
+mislabeled image sitting in that class's folder.</li>
+<li><b>Sort tab:</b> full sorting runs (simulator or hardware) with a
+live feed, per-bin counts, throughput, and a ground-truth scorecard in sim
+mode: <b>correct / rejected / misfiled</b>. Misfiled is the number to drive
+to zero. Every case's photo is kept for the run report, so any card can be
+reassigned or filed into the dataset afterwards.</li>
+</ul>
+
+<h1 id="d-pi">Moving to the Pi</h1>
+
+<h2>Getting the Pi online</h2>
+<ol>
+<li><b>First boot — set Wi-Fi before flashing.</b> In the
+<a href="https://www.raspberrypi.com/software/">Raspberry Pi Imager</a>, use
+the settings gear when writing the SD card: set the hostname
+(<code>pisortiq</code>), enable SSH, and enter your Wi-Fi SSID and
+password. The Pi joins your network on its very first boot — no monitor or
+keyboard needed. Then browse to <code>http://pisortiq.local:5000</code> —
+or, from the trainer's Train page, click <b>Find machine…</b> to scan the
+network (works even when <code>.local</code> names don't resolve).</li>
+<li><b>Ethernet always works</b> — plug in and the Pi gets an address via
+DHCP alongside (or instead of) Wi-Fi.</li>
+<li><b>Changing Wi-Fi later:</b> click the network readout in the page
+<b>header</b> (top right) — it shows every interface with its address,
+scans for nearby networks, and joins or forgets them (it drives
+NetworkManager, standard on Raspberry Pi OS). Joining a new network drops
+the old one, so do it while connected over ethernet when you can.</li>
+<li><i>Optional, for a machine that travels:</i> an access-point fallback
+(the Pi opens its own <code>SortIQ-Setup</code> hotspot when it can't
+find a known network) can be added with the Debian
+<code>comitup</code> package — an OS-level install, independent of this app.</li>
+</ol>
+
+<h2>More than one machine</h2>
+<p>
+Every machine answers at <code>&lt;its-hostname&gt;.local:5000</code> —
+hostnames are set at flash time and must be <b>unique</b> (two Pis
+sharing one makes the name flip between them). Click the name in the
+page header to label each machine ("9mm Master"); the label shows in
+the header, tab title, and the trainer's <b>Find machine…</b> list.
+The load-bearing rule: give each machine's <b>model a unique name</b>
+(<code>9mm/Master</code>, <code>9mm/Secondary</code>) — the trainer
+files its dataset mirrors by caliber/model, and it will refuse to pull
+two different machines into one mirror. Full fleet guidance:
+<code>docs/USER_MANUAL.md</code>.
+</p>
+
+<h2>Installing the app</h2>
+<p>
+One command from your workstation does the whole install (rsync + venv +
+inference stack + a boot service), and re-running it later ships updates
+without touching the Pi's settings or collected images:
+</p>
+<pre>tools/pi_deploy.sh          # defaults to pisortiq@pisortiq.local</pre>
+<p>
+The full walkthrough — flashing, deploying, and the first-connect
+bring-up checklist — is in <code>docs/PI_SETUP.md</code>. Models and
+config come along unchanged (nothing is retrained), and training stays
+on the PC: collect on the Pi, export the dataset backup, train, redeploy.
+</p>
+
+<h1 id="d-faq">Troubleshooting</h1>
+<table class="docsTable">
+<tr><th>Symptom</th><th>Likely cause → fix</th></tr>
+<tr><td>“no embedding model installed” when starting a run or testing</td><td>The machine needs a model + gallery pair from the trainer → install one from the trainer's Train page</td></tr>
+<tr><td>Everything goes to UNMATCHED (below its class bar)</td><td>Photos don't match dataset conditions (camera moved, lighting changed) or the classes involved are thin → more photos on the same rig, then Rebuild gallery; check the crop under “what the model saw”</td></tr>
+<tr><td>Everything rejected as blurry</td><td>Sharpness floor set above what the camera delivers → check the live sharpness readout, lower the floor. The light ring is powered by the sorter board — board off = dark, low readings.</td></tr>
+<tr><td>The green circle misses the case</td><td>Busy background confusing rim detection → plain dark background, case filling more of the frame</td></tr>
+<tr><td>Wrong stamp in a bin</td><td>The one unacceptable fault, and almost always a data problem → refile the case from the run report, then run <b>Scan for mislabels</b> on both classes involved (a mislabeled image that became an exemplar attracts its real class), fix, Rebuild gallery</td></tr>
+<tr><td>Two stamps keep rejecting as “too close to call”</td><td>Honest behavior for look-alikes → more photos of both (especially the looks it rejects on), Rebuild gallery; a full retrain sharpens the pair further</td></tr>
+<tr><td>Mislabeled or bad training image</td><td>Dataset tab → View → click the thumbnail: review full-size, <b>Move</b> to the right class, or <b>Delete</b>. Moves are instant — the crop travels with the photo.</td></tr>
+<tr><td>Suspect there are mislabels you haven't spotted</td><td>Dataset tab → <b>Scan for mislabels</b>: the decider re-reads every stored image and flags the ones it would <i>accept</i> as a different class. Those flags are nearly always real — <b>View</b>, then Move, then Rebuild gallery. Scan after big collection sessions.</td></tr>
+<tr><td>Class counts look inflated (same case photographed many times)</td><td>Dataset tab → <b>Scan for duplicates</b>: pixel-verifies repeats of the same physical case (matching scratch pattern at any rotation), sharpest marked keep. You confirm every group; nothing deletes automatically. Rebuild gallery afterwards.</td></tr>
+<tr><td>“Set aside” photos piling up</td><td>That's the tray on the Dataset page doing its job → name the clusters (see the community list) or discard them. The tray exists to be emptied.</td></tr>
+<tr><td>Camera not detected</td><td>Another app holds it → close it, restart the server; or change the camera index in Camera settings</td></tr>
+</table>
+
+</article>
+</div>

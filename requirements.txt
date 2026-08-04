@@ -1,0 +1,11 @@
+# PC (development / training)
+tensorflow>=2.16
+opencv-python
+numpy
+pyserial
+flask
+
+# Pi (inference only) — instead of tensorflow:
+# tflite-runtime
+# opencv-python-headless
+# picamera2  (via apt: python3-picamera2)

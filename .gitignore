@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Regenerable / local artifacts — not source.
+# data/: synth is regenerable; real photos are the user's to back up
+# models/: retrain via the Train flow or use the app's export bundle
+# runs/: per-run decision logs and reject images
+data/
+models/
+runs/
+
+# Scratch
+_t.png
+*.zip
+_*.png
+*.log

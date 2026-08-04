@@ -1,0 +1,85 @@
+{
+  "active": {
+    "cartridge": "9mm",
+    "model": "Default"
+  },
+  "camera": {
+    "index": 0,
+    "width": 1280,
+    "height": 720,
+    "settle_frames": 4,
+    "zoom": {
+      "factor": 1.0,
+      "x": 0.0,
+      "y": 0.0
+    },
+    "controls": {},
+    "model": "ov3660",
+    "lock_override": false
+  },
+  "serial": {
+    "port": "/dev/ttyUSB0",
+    "baud": 115200,
+    "sort_timeout_s": 10.0,
+    "auto_connect": true
+  },
+  "models": {
+    "input_size": 160
+  },
+  "machine": {
+    "feed_speed": 94,
+    "feed_steps": 60,
+    "sort_speed": 90,
+    "sort_steps": 21,
+    "feed_current": 1000,
+    "sort_current": 1000,
+    "feed_homing_offset": 7,
+    "sort_homing_offset": 2,
+    "slot_drop_delay": 300,
+    "notification_delay": 120,
+    "motor_standby": 0,
+    "camera_led": 110,
+    "slots_total": 8,
+    "slots_enabled": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "init_on_startup": true
+  },
+  "cameras": {
+    "ov3660": {
+      "presets": {
+        "collection": {
+          "width": 1280,
+          "height": 720,
+          "zoom": {
+            "factor": 1.0,
+            "x": -0.05,
+            "y": 0.0
+          },
+          "controls": {
+            "gain": 21,
+            "exposure": 1823,
+            "brightness": -47,
+            "contrast": 10,
+            "white_balance_temp": 3293,
+            "auto_exposure": false
+          },
+          "camera_led": 100
+        }
+      },
+      "saved": null
+    },
+    "imx415": {
+      "presets": {},
+      "saved": null
+    }
+  },
+  "machine_url": "http://pisortiq.local:5000"
+}

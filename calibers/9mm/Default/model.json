@@ -1,0 +1,29 @@
+{
+  "bin_count": 8,
+  "bins": [
+    "UNMATCHED"
+  ],
+  "cartridge": "9mm",
+  "floors": {
+    "sharpness": 20.0,
+    "stamp_confidence": 0.65,
+    "top2_margin": 0.15
+  },
+  "imaging": {
+    "clahe": 4.0,
+    "crop_mode": "normal",
+    "gray": true,
+    "head_donut": true,
+    "pocket_circle": true,
+    "pocket_frac": 0.58,
+    "polar": false,
+    "rim_scale": 0.99
+  },
+  "name": "Default",
+  "specialist_classes": [],
+  "stamp_labels": [
+    "FC",
+    "HORNADY",
+    "WIN"
+  ]
+}

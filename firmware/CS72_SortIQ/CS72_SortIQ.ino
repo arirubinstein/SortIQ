@@ -1,0 +1,1621 @@
+/// VERSION CS 7.2.250925.6.1-SS2 — SortIQ fork ///
+/// Forked from CS 7.2.250925.6.1 (stock: github.com/sjseth/AI-Case-Sorter-CS7.2) ///
+///
+/// Derived from Seth Hahner's AI-Case-Sorter-CS7.2 firmware
+/// (https://github.com/sjseth/AI-Case-Sorter-CS7.2), GPL-3.0.
+/// This file is likewise GPL-3.0 (see LICENSE at the repo root);
+/// modifications by the SortIQ project, 2026 — the change list below
+/// is the GPL section 5 statement of modifications.
+///
+/// Additions over stock (protocol is a strict superset — every stock
+/// command, reply, and timing-visible behavior is preserved so the
+/// SortIQ app runs unchanged against either firmware):
+///   * per-slot absolute position table in microsteps (slotpos:<i>:<v>)
+///     — sorter motion is a table lookup, so drop positions center on
+///     custom output hardware and spacing may be non-uniform
+///   * true trapezoid accel on the sorter (AVR446-style integer ramp,
+///     start delay tunable via sortaccel:<us>)
+///   * two-stage sorter homing: fast seek, back off, slow re-approach
+///     (sorthomebackoff:<usteps>, sorthomeslow:<us>) — homing
+///     repeatability is the positioning accuracy floor
+///   * feed motion profile for the tensioner/camera port: short launch
+///     ramp (feedlaunch:<usteps>) then full cruise across the port arc;
+///     the homing offset can run as a decel ramp (feeddecel:0|1)
+///   * feedstats command: homing-steps telemetry for jam prediction
+///   * TMC2209 intpol(true) on both drivers (256-ustep interpolation)
+///   * SS2: pipelined feed (pf / ps:<slot>) — the app triggers the
+///     mechanical cycle right after its photo and sends the slot while
+///     the wheel is moving; the slot lands in the hardware serial buffer
+///     and queues for the NEXT feed, which is the first time it is
+///     needed. Overlaps inference with motion (~1.0 s/case vs 1.5).
+///     pf without a queued slot answers error:no slot queued.
+///
+/// REQUIRES AI SORTER SOFTWARE VERSION 1.1.53 or newer, or SortIQ.
+
+#include <Wire.h>
+
+//You may need to add the TMCStepper library to your Arduino IDE.
+//In the Sketch menu, select Include Library -> Manage Libraries
+//In the library manager search for "TMCStepper". Find the TMCStepper library by teemuatlut and click the Install button. 
+//You may have to close and reopen the Arduino IDE before the library is recognized
+//at this time of this firmware version we are using TMCStepper 0.7.3.
+#include <TMCStepper.h>
+#include <SoftwareSerial.h>   
+
+#define FIRMWARE_VERSION "7.2.250925.6.2-SS2"
+
+#define CASEFAN_PWM 9 //controls case fan speed
+#define CASEFAN_LEVEL 100 //0-100 
+#define CASEFAN_SW_CTRL false //whether speed controls show in the software
+
+#define CAMERA_LED_PWM 11 //the output pin for the digital PWM 
+#define CAMERA_LED_LEVEL  200 //camera brightness if using digital PWM, otherwise ignored 
+
+#define FEED_SENSOR 10 //the proximity sensor under the feed wheel
+#define FEED_DIRPIN 8 //DIRECTION signal for the feed motor direction
+#define FEED_STEPPIN 7 //PULSE signal for the feed motor steps
+#define FEED_ENABLE A0 //Feed motor enable controll pin
+
+//UART COMMS
+#define FEED_UART_RX A4 //FEED UART RX COMMS 
+#define FEED_UART_TX A5 //FEED UART TX COMMS 
+#define FEED_IN_REVERSE false //set to true to reverse direction of feed motor. 
+#define FEED_MICROSTEPS 16  //how many microsteps the controller is configured for. 
+#define FEED_HOMING_SENSOR A3  //connects to the feed wheel homing sensor
+#define FEED_HOMING_SENSOR_TYPE 0 //1=NO (normally open) default switch, 0=NC (normally closed) (optical switches) 
+#define FEEDSENSOR_ENABLED true //enabled if feedsensor is installed and working;//this is a proximity sensor under the feed tube which tells us a case has dropped completely
+#define FEEDSENSOR_TYPE 1 // NPN = 0 (default), PNP = 1
+#define FEED_HOMING_ENABLED true //enabled feed homing sensor
+#define FEED_HOMING_OFFSET_STEPS 5 //additional steps to continue after homing sensor triggered
+#define FEED_STEPS 60  //The amount to travel before starting the homing cycle. Should be less than (80 - FEED_HOMING_OFFSET_STEPS)
+#define FEED_OVERSTEP_THRESHOLD 140 //if we have gone this many steps without hitting a homing node, something is wrong. Throw an overstep error
+#define FEED_DONE_SIGNAL 12   // Writes HIGH Signal When Feed is done. Used for mods like AirDrop
+
+//FEED MOTOR SPEED / ACCELLERATION SETTINGS (DISABLED BY DEFAULT)
+#define FEED_MOTOR_SPEED 90 //range of 1-100
+#define FEED_ACC_SLOPE 32  //2 steps * 16 MicroStes
+#define ACC_FEED_ENABLED false //enabled or disables feed motor accelleration. 
+
+
+#define SORT_DIRPIN 3 //DIRECTION signal for the sorter motor
+#define SORT_STEPPIN 2 //PULSE signal for the sorter motor
+#define SORT_UART_RX 5 //SORT UART RX COMMS
+#define SORT_UART_TX 6 //SORT UART TX COMMS
+#define SORT_ENABLE 4 //SORT motor enable control
+#define SORT_IN_REVERSE false //reverse direction of sorter motor
+#define SORT_MICROSTEPS 16 //how many microsteps the controller is configured for. 
+#define SORT_HOMING_SENSOR A2  //connects to the sorter homing sensor
+#define SORT_HOMING_SENSOR_TYPE 0 //1=NO (normally open) default switch, 0=NC (normally closed) (optical switches)
+#define SORT_HOMING_ENABLED true //home sorter on startup and 0
+#define SORT_HOMING_OFFSET_STEPS 0 //additional steps to continue after homing sensor triggered
+#define SORT_MOTOR_SPEED 94 //range of 1-100
+//SORT MOTOR SPEED / ACCELLERATION SETTINGS (ENABLED BY DEFAULT)
+#define ACC_SORT_ENABLED true // default true
+#define ACC_FACTOR 1200 //1200 is default factor
+#define SORT_ACC_SLOPE 64 //64 is default - slope this is the number of microsteps to accelerate and deaccellerate in a sort. 
+
+//STEPPER MOTOR UART SETTINGS
+#define R_SENSE 0.11f 
+#define DRIVER_ADDRESS 0b00 
+#define FEED_CURRENT 900 //mA - 1100 is default 1amp. 1100=1.1amp, 900=.9amp, etc
+#define SORT_CURRENT 900 //mA - 1000 is default 1.1 amp.
+
+//AIRDROP / 12v signaling
+#define AIR_DROP_ENABLED false //enables airdrop
+
+#define AUTO_MOTORSTANDBY_TIMEOUT 0 // 0 = disabled; The time in seconds to wait after no motor movement before putting motors in standby
+
+//ARDUINO CONFIGURATIONS
+//number of steps between chutes. With the 8 and 10 slot attachments, 20 is the default.
+//If you have customized sorter output drops, you will need to change this setting to meet your needs.
+//Note there are 200 steps in 1 revolution of the sorter motor.
+#define SORTER_CHUTE_SEPERATION 20
+
+//SHELLSORTER FORK CONFIGURATIONS
+#define MAX_SLOTS 12              //size of the per-slot position table
+#define SORT_HOME_BACKOFF 160     //usteps to back off past the homing sensor
+                                  //(bench-tuned: 10 full steps)
+#define SORT_HOME_SLOW_DELAY 1400 //us/ustep during the slow homing re-approach
+                                  //(bench-tuned)
+#define FEED_LAUNCH_STEPS 48      //usteps of feed launch ramp (must complete
+                                  //BEFORE the case reaches the open camera
+                                  //port - the tensioner needs it at cruise)
+#define FEED_DECEL_OVER_OFFSET true //run the feed homing offset as a decel
+                                  //ramp (false = stock crisp dead-stop)
+
+
+//FEED DELAY SETTINGS
+
+// Used to send signal to add-ons when feed cycle completes (used by airdrop mod). 
+// IF NOT USING MODS, SET TO 0. With Airdrop set to 60-100 (length of the airblast)
+#define FEED_CYCLE_COMPLETE_SIGNALTIME 100 
+
+// The amount of time to wait after the feed completes before sending the FEED_CYCLE_COMPLETE SIGNAL
+// IF NOT USING MODS, SET TO 0. with Airdrop set to 30-50 which allows the brass to start falling before sending the blast of air. 
+#define FEED_CYCLE_COMPLETE_PRESIGNALDELAY 30
+
+// Time in milliseconds to wait before sending "done" response to serialport (allows for everything to stop moving before taking the picture): runs after the feed_cycle_complete signal
+// With AirDrop mod enabled, it needs about 20-30MS. If airdrop is not enabled, it should be closer to 50-70. 
+// If you are getting blurred pictures, increase this value. 
+#define FEED_CYCLE_NOTIFICATION_DELAY 120 
+
+//when airdrop is enabled, this value is used instead of SLOT_DROP_DELAY but does the same thing
+//Usually can be 100 or lower, increase value if brass not clearing the tube before it moves to next slot. 
+#define FEED_CYCLE_COMPLETE_POSTDELAY 100
+
+// number of MS to wait after feedcycle before moving sort arm.
+// Prevents slinging brass. 
+// This gives time for the brass to clear the sort tube before moving the sort arm. 
+#define SLOT_DROP_DELAY 550
+
+//DEBOUNCE is a feature to counteract case bounce which can occur if the machine runs out of brass and a peice of brass drops a distance from
+//from the collator to the feeder. It developes speed and bounces of the prox sensor triggering the sensor and bouncing back up to cause a jam. 
+//this seeks to eliminate that by adding a small pause to let the case bounce and settle. 
+
+#define DEBOUNCE_TIMEOUT 300 //default 500. The number of milliseconds without sensor activation (meaning no brass in the feed) required to trigger a debounce pause.
+
+#define DEBOUNCE_PAUSE_TIME 500 //default 500.  Set to 0 to disable. The number of milliseconds to pause to wait for case to settle. 
+
+///END OF USER CONFIGURATIONS ///
+///DO NOT EDIT BELOW THIS LINE ///
+int cameraLEDLevel = CAMERA_LED_LEVEL; 
+int caseFanLevel = CASEFAN_LEVEL;
+double fanPercentConversion=0;
+int notificationDelay = FEED_CYCLE_NOTIFICATION_DELAY;
+bool airDropEnabled = AIR_DROP_ENABLED;
+int feedCycleSignalTime = FEED_CYCLE_COMPLETE_SIGNALTIME;
+int feedCyclePreDelay = FEED_CYCLE_COMPLETE_PRESIGNALDELAY;
+int feedCyclePostDelay = FEED_CYCLE_COMPLETE_POSTDELAY;
+int slotDropDelay = SLOT_DROP_DELAY;
+int dropDelay =  airDropEnabled ? feedCyclePostDelay : slotDropDelay;
+int feedDirection = FEED_IN_REVERSE == false;
+long autoMotorStandbyTimeout = AUTO_MOTORSTANDBY_TIMEOUT;
+
+int feedCurrent = FEED_CURRENT;
+int sortCurrent = SORT_CURRENT;
+bool enableSftCurrCtrl = true;
+
+int feedSpeed = FEED_MOTOR_SPEED; //represents a number between 1-100
+int feedSteps = FEED_STEPS;
+int feedMotorSpeed = 500;//this is default and calculated at runtime. do not change this value
+
+int sortSpeed = SORT_MOTOR_SPEED; //represents a number between 1-100
+int sortSteps = SORTER_CHUTE_SEPERATION;
+int sortMotorSpeed = 500;//this is default and calculated at runtime. do not change this value
+int homingSteps = 0;
+
+int feedMicroSteps = feedSteps * FEED_MICROSTEPS;
+
+//SHELLSORTER FORK STATE
+int slotPositions[MAX_SLOTS];     //absolute usteps from home, per slot
+int accFactor = ACC_FACTOR;       //trapezoid start/stop delay (sortaccel:)
+int sortHomeBackoff = SORT_HOME_BACKOFF;
+int sortHomeSlowDelay = SORT_HOME_SLOW_DELAY;
+int feedLaunchSteps = FEED_LAUNCH_STEPS;
+bool feedDecelOverOffset = FEED_DECEL_OVER_OFFSET;
+int armDwellMs = 0;               //extra hold before EVERY arm move
+                                  //(armdwell:) — brass-clearance time for
+                                  //slow tumblers in the arm tube. Additive
+                                  //and cycle-independent, unlike the
+                                  //SlotDropDelay remainder (which is a
+                                  //minimum spacing: a no-op whenever the
+                                  //app's think time already exceeds it).
+//trapezoid ramp state (sorter)
+unsigned int trapDelay = ACC_FACTOR;
+int trapN = 0;                    //accel steps taken so far
+int rampSteps = 0;                //length of the accel ramp, for the mirror
+//launch ramp state (feed)
+unsigned int feedTrapDelay = ACC_FACTOR;
+int feedTrapN = 0;
+//two-stage homing state (sorter): 0=fast seek, 1=backoff, 2=slow approach
+int sortHomeStage = 0;
+int backoffLeft = 0;      //margin usteps beyond the sensor release point
+int backoffTravel = 0;    //usteps spent clearing the flag (bounded)
+#define BACKOFF_TRAVEL_MAX 400
+#define SORT_DRIFT_TOL 64 //usteps of quiet nudge allowed at slot-0 arrival
+                          //before it counts as real drift (the arm RESTS on
+                          //the sensor threshold, so arrivals can read a
+                          //hair shy without anything being wrong)
+//feed homing telemetry (feedstats)
+unsigned int homingStepsThisCycle = 0;
+unsigned int lastHomingSteps = 0;
+unsigned int maxHomingSteps = 0;
+unsigned long feedCyclesDone = 0;
+
+int feedOverTravelSteps = feedMicroSteps - (FEED_OVERSTEP_THRESHOLD * FEED_MICROSTEPS);
+int feedOffsetSteps = FEED_HOMING_OFFSET_STEPS;
+int feedHomingOffset = feedOffsetSteps * FEED_MICROSTEPS;
+
+bool FeedScheduled = false;
+bool IsFeeding = false;
+bool IsFeedHoming = false;
+bool IsFeedHomingOffset = false;
+bool FeedCycleInProgress = false;
+bool FeedCycleComplete = false;
+bool IsFeedError = false;
+
+int FeedSteps = feedMicroSteps;
+int FeedHomingOffsetSteps = feedHomingOffset;
+int feedDelayMS = 150;
+int sortDelayMS = 400;
+
+bool forceFeed=false;
+String input = "";
+int qPos1 = 0;
+int qPos2 = 0;
+//SS2 pipelined feed: qPos2 holds a REAL assignment (a slot some command
+//queued) vs the placeholder a pf leaves behind while the app is still
+//classifying. pf refuses to run on a placeholder — that is the guard
+//that turns a lost ps: into a visible error instead of a missort.
+bool slotQueued = true;
+int sortStepsToNextPosition = 0;
+int sortStepsToNextPositionTracker=0;
+bool SortInProgress = false;
+bool SortComplete = false;
+bool IsSorting = false;
+bool IsSortHoming = false;
+
+int sortOffsetSteps = SORT_HOMING_OFFSET_STEPS;
+int sortHomingOffset = sortOffsetSteps * SORT_MICROSTEPS;
+bool IsSortHomingOffset = false;
+int SortHomingOffsetSteps = sortHomingOffset;
+bool sorterIsHomed = false;
+
+int slotDelayCalc = 0;
+
+bool IsTestCycle=false;
+bool IsSortTestCycle=false;
+unsigned long testCycleInterval=0;
+unsigned long testsCompleted=0;
+int sortToSlot=0;
+unsigned long theTime;
+unsigned long timeSinceLastSortMove;
+unsigned long timeSinceLastMotorMove;
+unsigned long msgResetTimer;
+
+//debounce variables
+unsigned long lastTrigger = millis();
+int triggerTimeout = DEBOUNCE_TIMEOUT;
+int debounceTime= DEBOUNCE_PAUSE_TIME;
+bool proxActivated = false;
+bool sensorDelay = false;
+
+
+TMC2209Stepper sortmotorUART(SORT_UART_RX, SORT_UART_TX, R_SENSE, DRIVER_ADDRESS);
+TMC2209Stepper feedmotorUART(FEED_UART_RX, FEED_UART_TX, R_SENSE, DRIVER_ADDRESS);
+
+void setup() {
+  Serial.begin(9600);
+  delay(200);
+
+ 
+  //enable motor controllers 
+  pinMode(FEED_ENABLE, OUTPUT);
+  pinMode(SORT_ENABLE, OUTPUT);
+  digitalWrite(SORT_ENABLE, LOW);
+  digitalWrite(FEED_ENABLE, LOW);
+
+
+  feedmotorUART.begin();                // Initialize driver
+  feedmotorUART.toff(4);                 // Enables driver in software
+  sortmotorUART.begin();                // Initialize driver
+  sortmotorUART.toff(4);                 // Enables driver in software
+  delay(500);
+
+  //feedmotorUART.shaft(true);
+  feedmotorUART.rms_current(FEED_CURRENT);       // Set motor RMS current
+  feedmotorUART.microsteps(FEED_MICROSTEPS);
+  feedmotorUART.pwm_autoscale(true);
+  feedmotorUART.en_spreadCycle(false);   // false = StealthChop / true = SpreadCycle
+  feedmotorUART.intpol(true);            // interpolate to 256 usteps (fork)
+  feedmotorUART.ihold(2);
+
+ // feedmotorUART.ihold(4);
+  sortmotorUART.rms_current(SORT_CURRENT);       // Set motor RMS current
+  sortmotorUART.microsteps(SORT_MICROSTEPS);
+  sortmotorUART.pwm_autoscale(true);    // Needed for stealthChop
+  sortmotorUART.en_spreadCycle(false);   // false = StealthChop / true = SpreadCycle
+  sortmotorUART.intpol(true);            // interpolate to 256 usteps (fork)
+  sortmotorUART.ihold(2);
+
+  fillSlotPositions();                   // stock-equivalent grid until the
+                                         // app pushes per-slot overrides
+
+  setSorterMotorSpeed(SORT_MOTOR_SPEED);
+  setFeedMotorSpeed(FEED_MOTOR_SPEED);
+
+  pinMode(FEED_DIRPIN, OUTPUT);
+  pinMode(FEED_STEPPIN, OUTPUT);
+  pinMode(SORT_DIRPIN, OUTPUT);
+  pinMode(SORT_STEPPIN, OUTPUT);
+
+  pinMode(FEED_DONE_SIGNAL, OUTPUT);
+  pinMode(FEED_HOMING_SENSOR, INPUT);
+  pinMode(SORT_HOMING_SENSOR, INPUT);
+  pinMode(FEED_SENSOR, INPUT_PULLUP);
+
+   pinMode(CASEFAN_PWM, OUTPUT);
+   pinMode(CAMERA_LED_PWM, OUTPUT);
+
+
+    adjustCameraLED(cameraLEDLevel);
+    adjustFanLevel(caseFanLevel);
+
+  digitalWrite(FEED_DIRPIN, feedDirection);
+ 
+  jogSorter();
+
+  IsFeedHoming=true;
+  IsSortHoming=true;
+  msgResetTimer = millis();
+  
+   Serial.print(F("Ready\n"));
+}
+
+
+void loop() {
+   checkSerial();
+   getProxState();
+   runSortMotor();
+   onSortComplete();
+   scheduleRun();
+   checkFeedErrors();
+   runFeedMotor();
+   homeFeedMotor();
+   homeSortMotor();
+   serialMessenger();
+   onFeedComplete();
+   runAux();
+   MotorStandByCheck();
+}
+
+int FreeMem(){
+  extern int __heap_start, *__brkval;
+  int v;
+  return(int) &v - (__brkval ==0 ? (int) &__heap_start : (int) __brkval);
+}
+
+bool commandReady = false;
+char endMarker = '\n';
+char rc;
+
+void recvWithEndMarker() {
+    while (Serial.available() > 0 ) {
+        rc = Serial.read();
+        delay(1);
+        if (rc != endMarker) {
+            input += rc;
+        }
+        else {
+            commandReady=true; 
+            return;
+        }
+    }
+ }
+void resetCommand(){
+  input="";
+  commandReady=false;
+}
+
+void checkSerial(){
+  if(FeedCycleInProgress==false && SortInProgress==false && Serial.available()>0){
+   
+      //input = Serial.readStringUntil('\n');
+       recvWithEndMarker();
+       
+       if(!commandReady){
+        return;
+       }
+
+      if (input.startsWith("stop")) {
+         resetCommand();
+          FeedScheduled=false;
+          IsFeedHoming=false;
+          IsFeedHomingOffset = false;
+          IsSortHomingOffset = false;
+          FeedCycleComplete=true;
+          FeedCycleInProgress = false;
+          IsTestCycle=false;
+        
+         // Serial.print(F("ok\n"));
+         return;
+      } 
+      // Serial.print(input);
+       
+     //this should be most cases
+      if (isDigit(input[0])) {
+        moveSorterToNextPosition(input.toInt());
+        FeedScheduled = true;
+        IsFeeding = false;
+        scheduleRun();
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("homefeeder")) {
+        feedDelayMS=400;
+          IsFeedHoming=true;
+         Serial.print(F("ok\n"));
+         resetCommand();
+         return;
+      } 
+      if (input.startsWith("homesorter")) {
+        sortDelayMS=400;
+           jogSorter();
+        qPos1 = 0;
+        qPos2 = 0;
+        slotQueued = true;   //SS2: the queue is rebuilt to a known state —
+                             //the app re-primes and re-pairs after a home
+          homingSteps=0;
+          sortHomeStage=0;
+          IsSortHoming=true;
+          Serial.print(F("ok\n"));
+          resetCommand();
+         return;
+      }
+     if(input.startsWith("status")){
+        Serial.print(F("SORT microsteps: "));   Serial.println(sortmotorUART.microsteps());
+        Serial.print(F("SORT current: "));   Serial.println(sortmotorUART.rms_current()); 
+        Serial.print(F("SORT Stealth: "));   Serial.println(sortmotorUART.stealth()); 
+        
+        Serial.print(F("FEED microsteps: "));   Serial.println(feedmotorUART.microsteps());
+        Serial.print(F("FEED current: "));   Serial.println(feedmotorUART.rms_current()); 
+        Serial.print(F("FEED Stealth: "));   Serial.println(feedmotorUART.stealth()); 
+        resetCommand();
+        return;
+     }
+      
+       if(input.startsWith("feedmotorcurrent:")){
+            input.replace("feedmotorcurrent:", "");
+            feedCurrent = input.toInt();
+            if(feedCurrent>1800){
+              feedCurrent=1800;
+            }
+          feedmotorUART.rms_current(feedCurrent);       // Set motor RMS current
+           Serial.print(F("ok\n"));
+         resetCommand();
+        return;
+       }
+      if(input.startsWith("sortmotorcurrent:")){
+            input.replace("sortmotorcurrent:", "");
+            sortCurrent = input.toInt();
+            if(sortCurrent>1800){
+              sortCurrent=1800;
+            }
+          sortmotorUART.rms_current(sortCurrent);       // Set motor RMS current
+           Serial.print(F("ok\n"));
+         resetCommand();
+        return;
+       }
+      if (input.startsWith("sortto:")) {
+          input.replace("sortto:", "");
+          moveSorterToPosition(input.toInt());
+           Serial.print(F("ok\n"));
+           resetCommand();
+         return;
+      } 
+
+      if (input.startsWith("xf:")) {
+          input.replace("xf:", "");
+          forceFeed = true;
+          moveSorterToNextPosition(input.toInt());
+          resetCommand();
+          FeedScheduled = true;
+          IsFeeding = false;
+          scheduleRun();
+          return;
+      }
+
+      if (input.startsWith("getconfig")) {
+        Serial.print(F("{\"FeedMotorCurrent\":"));
+        Serial.print(feedCurrent);
+
+        Serial.print(F(",\"FeedMotorSpeed\":"));
+        Serial.print(feedSpeed);
+
+        Serial.print(F(",\"FeedCycleSteps\":"));
+        Serial.print(feedSteps);
+
+        Serial.print(F(",\"SortMotorCurrent\":"));
+        Serial.print(sortCurrent);
+
+        Serial.print(F(",\"SortMotorSpeed\":"));
+        Serial.print(sortSpeed);
+
+        Serial.print(F(",\"SortSteps\":"));
+        Serial.print(sortSteps);
+
+        Serial.print(F(",\"NotificationDelay\":"));
+        Serial.print(notificationDelay);
+
+        Serial.print(F(",\"SlotDropDelay\":"));
+        Serial.print(slotDropDelay);
+
+        Serial.print(F(",\"AirDropEnabled\":"));
+        Serial.print(airDropEnabled);
+
+        Serial.print(F(",\"AirDropPostDelay\":"));
+        Serial.print(feedCyclePostDelay);
+
+        Serial.print(F(",\"AirDropPreDelay\":"));
+        Serial.print(feedCyclePreDelay);
+
+        Serial.print(F(",\"AirDropSignalTime\":"));
+        Serial.print(feedCycleSignalTime);
+
+        Serial.print(F(",\"FeedHomingOffset\":"));
+        Serial.print(feedOffsetSteps);
+
+        Serial.print(F(",\"SortHomingOffset\":"));
+        Serial.print(sortOffsetSteps);
+        
+        Serial.print(F(",\"AutoMotorStandbyTimeout\":"));
+        Serial.print(autoMotorStandbyTimeout);
+
+        Serial.print(F(",\"CaseFanSpeedEnabled\":"));
+        Serial.print(CASEFAN_SW_CTRL);
+
+        Serial.print(F(",\"CaseFanLevel\":"));
+        Serial.print(caseFanLevel);
+
+        Serial.print(F(",\"CameraLEDLevel\":"));
+        Serial.print(cameraLEDLevel);
+
+        Serial.print(F(",\"DebounceTimeout\":"));
+        Serial.print(triggerTimeout);
+
+        Serial.print(F(",\"DebouncePauseTime\":"));
+        Serial.print(debounceTime);
+
+        //// SHELLSORTER FORK KEYS ////
+        Serial.print(F(",\"SortAccelFactor\":"));
+        Serial.print(accFactor);
+
+        Serial.print(F(",\"SortHomeBackoff\":"));
+        Serial.print(sortHomeBackoff);
+
+        Serial.print(F(",\"SortHomeSlowDelay\":"));
+        Serial.print(sortHomeSlowDelay);
+
+        Serial.print(F(",\"FeedLaunchSteps\":"));
+        Serial.print(feedLaunchSteps);
+
+        Serial.print(F(",\"FeedDecelOverOffset\":"));
+        Serial.print(feedDecelOverOffset);
+
+        Serial.print(F(",\"ArmDwellMs\":"));
+        Serial.print(armDwellMs);
+
+        Serial.print(F(",\"MaxSlots\":"));
+        Serial.print(MAX_SLOTS);
+
+        Serial.print(F(",\"SlotPositions\":\""));
+        for (int i = 0; i < MAX_SLOTS; i++) {
+          if (i) { Serial.print(','); }
+          Serial.print(slotPositions[i]);
+        }
+        Serial.print(F("\""));
+
+        Serial.print(F("}\n"));
+        resetCommand();
+        return;
+      }
+
+        if (input.startsWith("debounceTimeout:")) {
+          input.replace("debounceTimeout:", "");
+          triggerTimeout = input.toInt();
+          Serial.print(F("ok\n"));
+          resetCommand();
+          return;
+        }
+
+        if (input.startsWith("debounceTime:")) {
+          input.replace("debounceTime:", "");
+          debounceTime = input.toInt();
+          Serial.print(F("ok\n"));
+          resetCommand();
+          return;
+        }
+
+
+       //set feed speed. Values 1-100. Def 60
+      if (input.startsWith("feedspeed:")) {
+        input.replace("feedspeed:", "");
+        feedSpeed = input.toInt();
+        setFeedMotorSpeed(feedSpeed);
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      //set feed homing offset
+      if (input.startsWith("feedhomingoffset:")) {
+        input.replace("feedhomingoffset:", "");
+        feedOffsetSteps = input.toInt(); //3
+        feedHomingOffset = feedOffsetSteps * FEED_MICROSTEPS; //48
+        FeedHomingOffsetSteps = feedHomingOffset; //48
+
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("sorthomingoffset:")) {
+        input.replace("sorthomingoffset:", "");
+        sortOffsetSteps = input.toInt(); //3
+        sortHomingOffset = sortOffsetSteps * SORT_MICROSTEPS; //48
+        SortHomingOffsetSteps = sortHomingOffset; //48
+
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+
+      //// SHELLSORTER FORK COMMANDS ////
+      //per-slot absolute position, in usteps from home: slotpos:<i>:<usteps>
+      //(push sortsteps FIRST on connect - it refills the whole table)
+      if (input.startsWith("slotpos:")) {
+        input.replace("slotpos:", "");
+        int sep = input.indexOf(':');
+        if (sep > 0) {
+          int idx = input.substring(0, sep).toInt();
+          int val = input.substring(sep + 1).toInt();
+          if (idx >= 0 && idx < MAX_SLOTS) {
+            slotPositions[idx] = val;
+          }
+        }
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      //trapezoid start/stop delay in us (bigger = gentler launch)
+      if (input.startsWith("sortaccel:")) {
+        input.replace("sortaccel:", "");
+        accFactor = input.toInt();
+        if (accFactor < 100) { accFactor = 100; }
+        if (accFactor > 5000) { accFactor = 5000; }
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("sorthomebackoff:")) {
+        input.replace("sorthomebackoff:", "");
+        sortHomeBackoff = input.toInt();
+        if (sortHomeBackoff < 0) { sortHomeBackoff = 0; }
+        if (sortHomeBackoff > 200) { sortHomeBackoff = 200; }
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("sorthomeslow:")) {
+        input.replace("sorthomeslow:", "");
+        sortHomeSlowDelay = input.toInt();
+        if (sortHomeSlowDelay < 100) { sortHomeSlowDelay = 100; }
+        if (sortHomeSlowDelay > 5000) { sortHomeSlowDelay = 5000; }
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("feedlaunch:")) {
+        input.replace("feedlaunch:", "");
+        feedLaunchSteps = input.toInt();
+        if (feedLaunchSteps < 0) { feedLaunchSteps = 0; }
+        if (feedLaunchSteps > 200) { feedLaunchSteps = 200; }
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("armdwell:")) {
+        input.replace("armdwell:", "");
+        armDwellMs = input.toInt();
+        if (armDwellMs < 0) { armDwellMs = 0; }
+        if (armDwellMs > 1000) { armDwellMs = 1000; }
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("feeddecel:")) {
+        input.replace("feeddecel:", "");
+        feedDecelOverOffset = stringToBool(input);
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      //SS2 pipelined feed. pf = run one full cycle NOW (arm to the slot
+      //queued by the previous ps:, then feed), leaving the queue tail as
+      //a placeholder; ps:<slot> = assign the queue tail for the case the
+      //app just photographed. ps: is sent while the cycle is still moving
+      //and simply waits in the hardware serial buffer — checkSerial is
+      //gated off during motion, so it is processed after the cycle
+      //completes, always before the next pf. runFeedMotor still refuses
+      //to step while SortInProgress, so brass only ever drops through a
+      //PARKED arm — the pipelining moves when the cycle starts, never
+      //what happens inside it.
+      if (input.startsWith("ps:")) {
+        input.replace("ps:", "");
+        qPos2 = input.toInt();
+        slotQueued = true;
+        resetCommand();       //silent: a reply would interleave with the
+        return;               //cycle's done; the pf guard audits misuse
+      }
+      if (input.startsWith("pf")) {
+        if (slotQueued == false) {
+          Serial.print(F("error:no slot queued\n"));
+          resetCommand();
+          return;
+        }
+        moveSorterToNextPosition(qPos2);  //arm -> the previous ps: slot;
+        slotQueued = false;               //the self-assigned tail is a
+                                          //placeholder until the next ps:
+        FeedScheduled = true;
+        IsFeeding = false;
+        scheduleRun();
+        resetCommand();
+        return;
+      }
+      //feed homing telemetry: seek usteps last cycle / worst / cycle count
+      if (input.startsWith("feedstats")) {
+        Serial.print(F("{\"LastHomingSteps\":"));
+        Serial.print(lastHomingSteps);
+        Serial.print(F(",\"MaxHomingSteps\":"));
+        Serial.print(maxHomingSteps);
+        Serial.print(F(",\"FeedCycles\":"));
+        Serial.print(feedCyclesDone);
+        Serial.print(F("}\n"));
+        resetCommand();
+        return;
+      }
+      //// END SHELLSORTER FORK COMMANDS ////
+
+      if (input.startsWith("sortspeed:")) {
+        input.replace("sortspeed:", "");
+        sortSpeed = input.toInt();
+        setSorterMotorSpeed(sortSpeed);
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+
+      //set sort steps. Values 1-100. Def 20
+      if (input.startsWith("sortsteps:")) {
+        input.replace("sortsteps:", "");
+        sortSteps = input.toInt();
+        fillSlotPositions();     //fork: rebuilds the whole slot table, so
+                                 //any slotpos overrides must be re-pushed
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+
+      //set feed steps. Values 1-1000. Def 100
+      if (input.startsWith("feedsteps:")) {
+        input.replace("feedsteps:", "");
+        feedSteps = input.toInt();
+        feedMicroSteps = feedSteps * FEED_MICROSTEPS;
+        feedOverTravelSteps = feedMicroSteps - (FEED_OVERSTEP_THRESHOLD * FEED_MICROSTEPS);
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("notificationdelay:")) {
+        input.replace("notificationdelay:", "");
+        notificationDelay = input.toInt();
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("slotdropdelay:")) {
+        input.replace("slotdropdelay:", "");
+        slotDropDelay = input.toInt();
+        dropDelay =  airDropEnabled ? feedCyclePostDelay: slotDropDelay;
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("airdropenabled:")) {
+        input.replace("airdropenabled:", "");
+        airDropEnabled = stringToBool(input);
+        dropDelay =  airDropEnabled ? feedCyclePostDelay: slotDropDelay;
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+
+      if (input.startsWith("airdroppostdelay:")) {
+        input.replace("airdroppostdelay:", "");
+        feedCyclePostDelay = input.toInt();
+        dropDelay =  airDropEnabled ? feedCyclePostDelay: slotDropDelay;
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+       if (input.startsWith("airdroppredelay:")) {
+        input.replace("airdroppredelay:", "");
+        feedCyclePreDelay = input.toInt();
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("airdropdsignalduration:")) {
+        input.replace("airdropdsignalduration:", "");
+        feedCycleSignalTime = input.toInt();
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("fan:")) {
+        input.replace("fan:", "");
+        caseFanLevel = input.toInt();
+        adjustFanLevel(caseFanLevel);
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("automotorstandbytimeout:")) {
+        input.replace("automotorstandbytimeout:", "");
+        autoMotorStandbyTimeout = input.toDouble();
+        Serial.print(F("ok\n"));
+        resetCommand();
+        return;
+      }
+      if (input.startsWith("cameraledlevel:")) {
+         input.replace("cameraledlevel:", "");
+         adjustCameraLED(input.toInt() );
+         //Serial.print("LED: ");
+         //Serial.print((float)cameraLEDLevel/255.0*100.0);
+         //Serial.print("%\n");
+         Serial.print(F("ok\n"));
+         resetCommand();
+         return;
+       }
+
+      if (input.startsWith("test:")) {
+        input.replace("test:", "");
+        IsTestCycle=true;
+        testCycleInterval=input.toFloat();
+        testsCompleted=0;
+        FeedScheduled=false;
+        FeedCycleInProgress=false;
+        Serial.print(F("testing started\n"));
+        resetCommand();
+        return;
+      }
+
+       if (input.startsWith("sorttest:")) {
+        input.replace("sorttest:", "");
+        IsSortTestCycle=true;
+        testCycleInterval=static_cast<unsigned long>(input.toInt());
+        testsCompleted=0;
+        Serial.print(F("testing started\n"));
+        resetCommand();
+        return;
+      }
+     
+
+
+       if (input.startsWith("ping")) {
+        //Serial.print(FreeMem());
+        resetCommand();
+        Serial.print(F(" ok\n"));
+        return;
+      }
+      if (input.startsWith("version")) {
+       
+        Serial.print(F(FIRMWARE_VERSION));
+        Serial.print(F("\n"));
+        resetCommand();
+        return;
+      }
+      resetCommand();
+      Serial.print(F("ok\n"));
+  }
+}
+
+bool stringToBool(String str) {
+  str.toLowerCase();
+  // Compare the string to "true" and return true if they match
+  if(str=="true"){
+    return true;
+  }
+  if(str == "1"){
+    return true;
+  }
+  return false;
+  
+}
+
+//this method is to run all "other" routines not in the main duty cycles (such as tests)
+void runAux(){
+
+  //This runs the feed and sort test if scheduled
+  if(IsTestCycle==true&&FeedScheduled==false&&FeedCycleInProgress==false){
+    if(testsCompleted<testCycleInterval){
+       int slot = random(0,6);
+         moveSorterToNextPosition(slot);
+        
+        FeedScheduled = true;
+        IsFeeding = false;
+        scheduleRun();
+        
+        Serial.print(testsCompleted);
+        Serial.print(F(" - "));
+        Serial.print(slot);
+        Serial.print(F("\n"));
+        testsCompleted++;
+
+            
+    }else{
+      IsTestCycle=false;
+      testCycleInterval=0;
+      testsCompleted=0;
+    }
+  }
+
+  //this runs the sorter only test cycles if scheduled
+  if(IsSortTestCycle==true&&SortInProgress==false){
+    if(testsCompleted<testCycleInterval){
+       int slot = random(0,8);
+       delay(40);
+       Serial.print(testsCompleted);
+       Serial.print(F(" - Sorting to: "));
+       Serial.println(slot);
+       moveSorterToPosition(slot);
+        testsCompleted++;
+    }else{
+      moveSorterToPosition(0);
+      Serial.println("Sort Test Completed");
+      IsSortTestCycle=false;
+      testsCompleted=0;
+      testCycleInterval=0;
+    }
+  }
+}
+
+
+//per-slot position table: index -> absolute usteps from home. Filled from
+//sortSteps (exact stock grid) until slotpos:<i>:<v> overrides an entry.
+//NOTE for the app: push sortsteps BEFORE slotpos on connect - the sortsteps
+//setter refills the whole table.
+void fillSlotPositions(){
+  for(int i=0;i<MAX_SLOTS;i++){
+    slotPositions[i] = i * sortSteps * SORT_MICROSTEPS;
+  }
+}
+
+int slotPos(int i){
+  if(i < 0) i = 0;
+  if(i >= MAX_SLOTS) i = MAX_SLOTS - 1;
+  return slotPositions[i];
+}
+
+void sortTrapInit(){
+  trapDelay = accFactor;
+  trapN = 0;
+  rampSteps = 0;
+}
+
+void moveSorterToNextPosition(int position){
+    sortToSlot=position;
+    sortStepsToNextPosition = slotPos(qPos1) - slotPos(qPos2);
+    sortStepsToNextPositionTracker = sortStepsToNextPosition;
+    sortTrapInit();
+    if(sortStepsToNextPosition !=0){
+      theTime = millis();
+       slotDelayCalc = (dropDelay - (theTime - timeSinceLastSortMove));
+       slotDelayCalc = slotDelayCalc > 0? slotDelayCalc : 1;
+       if(slotDelayCalc > dropDelay){
+         slotDelayCalc=dropDelay;
+       }
+
+      // Serial.println(slotDelayCalc);
+      delay(slotDelayCalc);
+      //fork: unconditional extra hold on top of the remainder logic.
+      //A slow tumbler bounces down the arm tube for most of a second;
+      //one can exit exactly as the arm swings
+      //and the fight skipped sort steps silently. This dwell holds the
+      //tube in place for exactly armDwellMs more at ANY app cycle time
+      //(the remainder above can't: it vanishes once think time exceeds
+      //dropDelay). Zero-travel moves skip both waits — batch capture
+      //(arm parked) pays nothing.
+      if(armDwellMs > 0){
+        delay(armDwellMs);
+      }
+    }
+    qPos1 = qPos2;
+    qPos2 =position;
+    slotQueued = true;   //SS2: every legacy caller passes a real slot; the
+                         //pf handler overrides this right after its call
+    SortInProgress = true;
+    SortComplete = false;
+    IsSorting = true;
+}
+
+void moveSorterToPosition(int position){
+    sortToSlot=position;
+    sortStepsToNextPosition = slotPos(qPos1) - slotPos(position);
+    sortStepsToNextPositionTracker = sortStepsToNextPosition;
+    sortTrapInit();
+   
+  // Serial.println(position);
+   //Serial.println(sortStepsToNextPosition);
+    qPos1 =position;
+    qPos2 =position;
+    slotQueued = true;   //SS2: sortto collapses the queue to a real slot
+    SortInProgress = true;
+    SortComplete = false;
+    IsSorting = true;
+}
+
+void runSortMotor(){
+  if(IsSorting==true){
+    
+    if(sortStepsToNextPosition==0){
+
+      if(qPos1==0){
+        //arm the homing state machine ONCE per arrival - this block runs
+        //every loop() pass while parked here, and re-arming each pass
+        //would reset the two-stage dance forever (bench-found hang:
+        //sortto:0 after sortto:7 left the arm oscillating on the edge)
+        if(IsSortHoming==false){
+          homingSteps=0;
+          sortHomeStage=0;
+          backoffTravel=0;
+          IsSortHoming=true;
+        }
+      }else{
+         IsSorting=false;
+         SortComplete = true;
+      }
+      return;
+    }
+    setAccSortDelay();
+    
+    if(sortStepsToNextPosition > 0){
+      stepSortMotor(true);
+      sortStepsToNextPosition--;
+    }
+    else {
+      stepSortMotor(false);
+      sortStepsToNextPosition++;
+    }
+  }
+}
+//True trapezoid (AVR446-style integer approximation of constant accel):
+//delay_n = delay_{n-1} - 2*delay_{n-1}/(4n+1) while accelerating, mirrored
+//on the way down. accFactor is the start/stop delay (sortaccel: setter),
+//sortMotorSpeed the cruise delay. Short moves become triangles: accel is
+//capped at the midpoint, so decel always has room to mirror it.
+void setAccSortDelay(){
+    if(ACC_SORT_ENABLED == false){
+      sortDelayMS=sortMotorSpeed;
+      return;
+    }
+    int remaining = abs(sortStepsToNextPosition);       //includes this step
+    int total = abs(sortStepsToNextPositionTracker);
+    int done = total - remaining;
+
+    if(remaining <= rampSteps){                          //down ramp (mirror)
+      if(trapN > 1){
+        trapDelay += (2UL * trapDelay) / (4UL * trapN + 1);
+        trapN--;
+      }
+      if(trapDelay > (unsigned int)accFactor){
+        trapDelay = accFactor;
+      }
+      sortDelayMS = trapDelay;
+      return;
+    }
+
+    if(trapDelay > (unsigned int)sortMotorSpeed && done < (total + 1) / 2){
+      trapN++;                                           //up ramp
+      trapDelay -= (2UL * trapDelay) / (4UL * trapN + 1);
+      if(trapDelay < (unsigned int)sortMotorSpeed){
+        trapDelay = sortMotorSpeed;
+      }
+      rampSteps = trapN;
+      sortDelayMS = trapDelay;
+      return;
+    }
+
+    trapDelay = sortMotorSpeed;                          //cruise
+    sortDelayMS = sortMotorSpeed;
+}
+bool sortDirection = false;
+void stepSortMotor(bool forward){
+     sortDirection = forward == SORT_IN_REVERSE;
+     digitalWrite(SORT_ENABLE, LOW);
+     if(forward==true){
+       digitalWrite(SORT_DIRPIN, sortDirection);
+     }else{
+      digitalWrite(SORT_DIRPIN, sortDirection);
+    }
+    digitalWrite(SORT_STEPPIN, HIGH);
+    delayMicroseconds(10);  //pulse width
+    digitalWrite(SORT_STEPPIN, LOW);
+    delayMicroseconds(sortDelayMS); //controls motor speed
+}
+void onSortComplete(){
+  if(SortInProgress==true && SortComplete==true){
+        SortInProgress=false;
+        timeSinceLastSortMove = millis();
+        timeSinceLastMotorMove = timeSinceLastSortMove;
+       // Serial.println("runscheduled");
+  }
+}
+
+void checkFeedErrors(){
+ if(FeedCycleComplete == false && FeedSteps < feedOverTravelSteps){
+      FeedScheduled=false;
+      FeedCycleComplete=true;
+      IsFeeding=false;
+      IsFeedHoming= false;
+      IsFeedHomingOffset=false;
+      IsFeedError = true;
+      FeedCycleInProgress = false;
+      Serial.println("error:feed overtravel detected");
+ }
+}
+void serialMessenger(){
+  
+ return; 
+
+}
+
+void onFeedComplete(){
+  if(FeedCycleComplete==true&& IsFeedError==false){
+   
+    timeSinceLastMotorMove = millis();
+   //this allows some time for the brass to start dropping before generating the airblast
+
+    if(airDropEnabled)
+    {
+      delay(feedCyclePreDelay);
+      digitalWrite(FEED_DONE_SIGNAL, HIGH);
+      delay(feedCycleSignalTime);
+      digitalWrite(FEED_DONE_SIGNAL,LOW);
+     
+    }
+    delay(notificationDelay);
+    Serial.print(F("done\n"));
+    //Serial.flush();
+    FeedCycleComplete=false;
+    forceFeed= false;
+    return;
+  }
+  
+}
+
+void scheduleRun(){
+ 
+  if(FeedScheduled==true && IsFeeding==false){
+    //if(digitalRead(FEED_SENSOR) == FEEDSENSOR_TYPE || forceFeed==true || FEEDSENSOR_ENABLED==false){
+      if(readyToFeed()){
+      //set run variables
+      IsFeedError=false;
+      FeedSteps = feedMicroSteps;
+      FeedScheduled=false;
+      FeedCycleInProgress = true;
+      FeedCycleComplete=false;
+      IsFeeding=true;
+      feedTrapDelay = accFactor;        //arm the launch ramp (fork)
+      feedTrapN = 0;
+      homingStepsThisCycle = 0;         //feedstats telemetry
+     
+    }else{
+      theTime = millis();
+      if(theTime - msgResetTimer > 1000){
+         // Serial.flush();
+          Serial.println("waiting for brass");
+         
+          msgResetTimer = millis();
+      }
+    // Serial.flush();
+     
+    }
+  }
+}
+
+
+
+void getProxState(){
+
+  //if the sensor is triggered, update the last trigger time and set the variable proxActivated
+  if(digitalRead(FEED_SENSOR) == FEEDSENSOR_TYPE){
+      proxActivated=true;
+      lastTrigger = millis();
+      return;
+  }
+
+  //sensor is not triggered, set the offTimer and set the variable to false
+  proxActivated=false;
+    
+  //check to see if the time since last trigger is longer than the timeout, if so set the delay variable. 
+  if(millis() - lastTrigger > triggerTimeout){
+    sensorDelay = true;
+  }
+}
+
+bool readyToFeed()
+{
+  //if feedsensor is not enabled, or it is a forcefeed,  we are always ready!
+  if(FEEDSENSOR_ENABLED==false || forceFeed==true){
+    return true;
+  }
+
+  //if no brass is detected, we are not ready
+  if(proxActivated == false){
+    return false;
+  }
+
+  //sensorDelay is calcualted in the getProxState() state method above. 
+  if(sensorDelay){
+        delay(debounceTime);
+        sensorDelay = false;
+        return false;
+  }
+   return true;
+}
+
+
+void runFeedMotor() {
+  if(SortInProgress){
+    return;
+  }
+
+  if(IsFeeding==true && FeedSteps > 0 )
+  {
+    setAccFeedDelay();
+    stepFeedMotor();
+    FeedSteps--;
+    return;
+  }
+  if(IsFeeding==true){
+    IsFeeding=false;
+    IsFeedHoming = true;
+  }
+  return;
+
+}
+
+void homeFeedMotor(){
+  
+  if(IsFeedHoming==true ){
+   
+    if(FEED_HOMING_ENABLED == false){
+      IsFeedHoming=false;
+       IsFeedHomingOffset = false;
+      FeedCycleComplete=true;
+      FeedCycleInProgress = false;
+      return;
+    }
+    
+    if (digitalRead(FEED_HOMING_SENSOR) == FEED_HOMING_SENSOR_TYPE) {
+      IsFeedHoming=false;
+
+     // Serial.println("homed!");
+      if(FeedCycleInProgress){ //if we are homing initially, we don't need to apply offsets
+          IsFeedHomingOffset = true;
+          FeedHomingOffsetSteps = feedHomingOffset;
+      }
+      return;
+    }
+    feedDelayMS = feedMotorSpeed;   //the sensor edge is taken at cruise, by
+    stepFeedMotor();                //design - never creep across the port
+    FeedSteps--;
+    homingStepsThisCycle++;         //feedstats: drift/jam telemetry
+    return;
+  }
+
+  if(IsFeedHomingOffset == true){
+    if(feedHomingOffset == 0)
+    {
+      IsFeedHomingOffset = false;
+      FeedCycleComplete=true;
+      FeedCycleInProgress = false;
+      feedStatsRecord();
+      return;
+    }
+    if(IsFeedHomingOffset == true && FeedHomingOffsetSteps > 0){
+      //fork: shape the stop across the offset. The homing edge was crossed
+      //at cruise; the offset then either runs as a linear decel ramp (every
+      //cycle ends with identical dynamics - aimed at the seating wobble) or
+      //flat-out with a crisp dead stop (feeddecel:0), whichever grips
+      //better in the tensioner. Empirical toggle, bench-tunable live.
+      if(feedDecelOverOffset && feedHomingOffset > 0){
+        long doneOff = (long)feedHomingOffset - FeedHomingOffsetSteps;
+        feedDelayMS = feedMotorSpeed +
+          (int)(((long)(accFactor - feedMotorSpeed) * doneOff) / feedHomingOffset);
+      }else{
+        feedDelayMS = feedMotorSpeed;
+      }
+      stepFeedMotor();
+      FeedHomingOffsetSteps--;
+      FeedSteps--;
+    }
+    else if(IsFeedHomingOffset == true && FeedHomingOffsetSteps<=0){
+      IsFeedHomingOffset = false;
+      FeedCycleComplete=true;
+      FeedCycleInProgress = false;
+      feedStatsRecord();
+    }
+  }
+}
+
+void feedStatsRecord(){
+  lastHomingSteps = homingStepsThisCycle;
+  if(homingStepsThisCycle > maxHomingSteps){
+    maxHomingSteps = homingStepsThisCycle;
+  }
+  feedCyclesDone++;
+}
+
+
+//Homing search budget exhausted: the flag was never (re)found. The stock
+//firmware spun in place forever here with the serial link wedged; report
+//and hand the board back instead. The arm position is UNTRUSTED after
+//this - the app's jam path (HOME) re-homes before anything else moves.
+void sortHomingFailed(){
+  IsSorting=false;
+  SortComplete=true;
+  IsSortHoming=false;
+  IsSortHomingOffset=false;
+  homingSteps=0;
+  sortHomeStage=0;
+  Serial.println(F("error:sort homing failed"));
+}
+
+//Two-stage homing (fork): fast seek to the sensor at cruise, back off past
+//it, then re-approach slowly - the trigger edge is taken at a low, constant
+//speed every time, which is what makes slot positions repeatable (the disc
+//re-homes every trip through slot 0, so this edge IS the accuracy floor).
+//A no-op command that never moved the arm skips the dance: it is already
+//sitting on a homed edge, and wiggling it mid-flush would help nothing.
+void homeSortMotor(){
+  if(IsSortHoming==true && SORT_HOMING_ENABLED == false){
+     IsSorting=false;
+         SortComplete = true;
+         IsSortHoming =false;
+         IsSortHomingOffset = false;
+         return;
+  }
+  if(IsSortHoming==true){
+     //if a sort is in progress and the arm is moving from any position to zero
+     //this code is reached when the steps have been completed to go to zero
+    if(IsSorting==true){
+         if(sortHomeStage == 0){                 //arrival check at slot 0
+           if(digitalRead(SORT_HOMING_SENSOR)==SORT_HOMING_SENSOR_TYPE){
+             IsSorting=false;                    //on the mark (or within the
+             SortComplete = true;                //quiet nudge): accept, no
+             IsSortHoming =false;                //dance - that's homesorter's
+             homingSteps=0;
+             return;
+           }
+           //not made: the rest point sits ON the sensor threshold, so a
+           //normal arrival can read a hair shy - nudge forward quietly
+           if(homingSteps < SORT_DRIFT_TOL){
+             sortDelayMS = sortHomeSlowDelay;
+             stepSortMotor(true);
+             homingSteps++;
+             return;
+           }
+           sortHomeStage = 3;                    //beyond tolerance: REAL
+           return;                               //drift, take the full dance
+         }
+         if(sortHomeStage == 3){                 //drift seek to the flag
+           if(digitalRead(SORT_HOMING_SENSOR)!=SORT_HOMING_SENSOR_TYPE){
+            if(homingSteps < (200*SORT_MICROSTEPS)){
+                sortDelayMS = sortMotorSpeed;
+                stepSortMotor(true);
+                homingSteps++;
+                return;
+            }
+            sortHomingFailed();                  //budget spent: report, do
+            return;                              //NOT hang the board
+           }
+           sortHomeStage = 1;
+           backoffLeft = sortHomeBackoff;
+           backoffTravel = 0;
+           return;
+         }
+         if(sortHomeStage == 1){                 //back off until the flag
+           if(digitalRead(SORT_HOMING_SENSOR)==SORT_HOMING_SENSOR_TYPE){
+             if(backoffTravel < BACKOFF_TRAVEL_MAX){  //RELEASES, then margin
+               sortDelayMS = sortHomeSlowDelay;
+               stepSortMotor(false);
+               backoffTravel++;
+               return;
+             }
+             sortHomeStage = 2;                  //flag too wide to clear:
+             return;                             //accept the edge we have
+           }
+           if(backoffLeft > 0){
+             sortDelayMS = sortHomeSlowDelay;
+             stepSortMotor(false);
+             backoffLeft--;
+             return;
+           }
+           sortHomeStage = 2;
+           return;
+         }
+         //stage 2: slow re-approach - the repeatable edge
+         if(digitalRead(SORT_HOMING_SENSOR)!=SORT_HOMING_SENSOR_TYPE){
+          if(homingSteps < (210*SORT_MICROSTEPS)){
+              sortDelayMS = sortHomeSlowDelay;
+              stepSortMotor(true);
+              homingSteps++;
+              return;
+          }
+          sortHomingFailed();
+          return;
+         }
+         IsSorting=false;
+         SortComplete = true;
+         IsSortHoming =false;
+         homingSteps=0;
+         sortHomeStage=0;
+         return;
+    }
+    //else if we are not doing an offset move (post homing) and the sensor is not
+    //activated, lets keep moving until it is or we hit 210 homing steps
+    else if(IsSortHomingOffset != true){
+      if(sortHomeStage == 0){                    //fast seek
+        if(digitalRead(SORT_HOMING_SENSOR)!=SORT_HOMING_SENSOR_TYPE){
+            if(homingSteps < (210*SORT_MICROSTEPS)){
+                sortDelayMS = sortMotorSpeed;
+                stepSortMotor(true);
+                homingSteps++;
+            }else{
+              sortHomingFailed();
+            }
+        }else{
+          sortHomeStage = 1;
+          backoffLeft = sortHomeBackoff;
+          backoffTravel = 0;
+        }
+      }
+      else if(sortHomeStage == 1){               //back off until the flag
+        if(digitalRead(SORT_HOMING_SENSOR)==SORT_HOMING_SENSOR_TYPE){
+          if(backoffTravel < BACKOFF_TRAVEL_MAX){    //RELEASES, then margin
+            sortDelayMS = sortHomeSlowDelay;
+            stepSortMotor(false);
+            backoffTravel++;
+          }else{
+            sortHomeStage = 2;                   //flag too wide to clear
+          }
+        }
+        else if(backoffLeft > 0){
+          sortDelayMS = sortHomeSlowDelay;
+          stepSortMotor(false);
+          backoffLeft--;
+        }else{
+          sortHomeStage = 2;
+        }
+      }
+      else if(digitalRead(SORT_HOMING_SENSOR)!=SORT_HOMING_SENSOR_TYPE){
+          if(homingSteps < (210*SORT_MICROSTEPS)){
+              sortDelayMS = sortHomeSlowDelay;   //slow re-approach
+              stepSortMotor(true);
+              homingSteps++;
+          }else{
+            sortHomingFailed();
+          }
+      }else{ //homed on the slow edge - schedule the offset move
+        IsSortHomingOffset=true;
+        SortHomingOffsetSteps = sortHomingOffset;
+        homingSteps = 0;
+        sortHomeStage = 0;
+      }
+    }
+
+   //If sort homing offset true, means we are in offset steps
+    if(IsSortHomingOffset == true){
+      if(sortHomingOffset == 0) //if there are no offset steps, we are done
+      {
+        IsSortHomingOffset = false;
+        IsSortHoming=false;
+        SortComplete=true;
+        return;
+      }
+      if(SortHomingOffsetSteps > 0){
+        stepSortMotor(true);
+        SortHomingOffsetSteps--;
+      }
+      else if(IsSortHomingOffset == true && SortHomingOffsetSteps<=0){
+        IsSortHomingOffset = false;
+        IsSortHoming=false;
+        SortComplete=true;
+        homingSteps=0;
+      }
+    }
+  }
+
+
+ 
+}
+
+
+
+void stepFeedMotor(){
+    digitalWrite(FEED_ENABLE, LOW);
+    digitalWrite(FEED_STEPPIN, HIGH);
+    delayMicroseconds(3);  //pulse width
+    digitalWrite(FEED_STEPPIN, LOW);
+    delayMicroseconds(feedDelayMS); //controls motor speed
+}
+
+//Feed launch ramp (fork). The case rides the wheel across an OPEN port in
+//the base at the camera; it must cross that port at full cruise or it
+//slips in before the tensioner lever grips it. So: a short launch ramp
+//(feedLaunchSteps, well before the port arc), then flat cruise through the
+//blind steps AND the homing seek - the sensor edge is taken at cruise.
+//There is deliberately no decel at the end of the blind phase; the stop is
+//shaped by the homing offset instead (see homeFeedMotor).
+void setAccFeedDelay(){
+    int done = feedMicroSteps - FeedSteps;
+    if(done < feedLaunchSteps && feedTrapDelay > (unsigned int)feedMotorSpeed){
+      feedTrapN++;
+      feedTrapDelay -= (2UL * feedTrapDelay) / (4UL * feedTrapN + 1);
+      if(feedTrapDelay < (unsigned int)feedMotorSpeed){
+        feedTrapDelay = feedMotorSpeed;
+      }
+      feedDelayMS = feedTrapDelay;
+      return;
+    }
+    feedDelayMS = feedMotorSpeed;
+}
+
+void setSorterMotorSpeed(int speed) {
+  sortMotorSpeed = setSpeedConversion(speed);
+}
+void setFeedMotorSpeed(int speed) {
+  feedMotorSpeed = setSpeedConversion(speed);
+}
+
+int setSpeedConversion(int speed) {
+  if (speed < 1 || speed > 100) {
+    return 500;
+  }
+
+  return 1060 - ((int)(((double)(speed - 1) / 99) * (1000 - 60)) + 60);
+}
+
+void MotorStandByCheck(){
+  if(SortInProgress || IsFeeding)
+    return;
+  
+  if(autoMotorStandbyTimeout==0)
+    return;
+
+  theTime = millis();
+
+  if(theTime - timeSinceLastMotorMove > (autoMotorStandbyTimeout*1000) ) {
+     digitalWrite(FEED_ENABLE, HIGH);
+     digitalWrite(SORT_ENABLE, HIGH);
+  }
+}
+
+void adjustCameraLED(int level)
+ {
+   // Trim to acceptable values
+   level > 255 ? 255: level;
+   level = level < 0 ? 0 : level;
+ 
+   analogWrite(CAMERA_LED_PWM, level);
+   cameraLEDLevel = level;
+ }
+
+
+
+void adjustFanLevel(int level)
+{
+  fanPercentConversion = level * 2.55;
+  level = fanPercentConversion;
+  analogWrite(CASEFAN_PWM, level);
+  //caseFanLevel = level;
+ }
+
+
+int js=0;
+int jogSteps = 25 * SORT_MICROSTEPS;
+void jogSorter(){
+    for(js=0;js<jogSteps;js++){
+      stepSortMotor(false);
+    }
+}

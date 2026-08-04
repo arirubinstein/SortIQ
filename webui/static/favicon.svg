@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- SortIQ favicon: a brass case head (the donut crop the models train
+       on), stamped like a real headstamp — SORT arced on top, IQ below,
+       separator dots at 3 and 9 o'clock. -->
+  <rect width="64" height="64" rx="14" fill="#14171c"/>
+  <circle cx="32" cy="32" r="24" fill="#d4a94f"/>
+  <circle cx="32" cy="32" r="23" fill="none" stroke="#8a6d2f" stroke-width="1.5"/>
+  <circle cx="32" cy="32" r="10.5" fill="#14171c"/>
+  <circle cx="32" cy="32" r="10.5" fill="none" stroke="#8a6d2f" stroke-width="1.5"/>
+  <defs>
+    <path id="top" d="M 17.5 32 A 14.5 14.5 0 0 1 46.5 32"/>
+    <path id="bot" d="M 11.0 32 A 21 21 0 0 0 53.0 32"/>
+  </defs>
+  <g fill="#14171c" opacity=".9"
+     font-family="Arial, Helvetica, sans-serif" font-weight="bold"
+     font-size="9.5" letter-spacing="1.5">
+    <text><textPath href="#top" startOffset="50%" text-anchor="middle">SORT</textPath></text>
+    <text><textPath href="#bot" startOffset="50%" text-anchor="middle">IQ</textPath></text>
+    <circle cx="14.5" cy="32" r="1.8"/>
+    <circle cx="49.5" cy="32" r="1.8"/>
+  </g>
+</svg>
