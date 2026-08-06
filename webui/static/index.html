@@ -2002,19 +2002,29 @@ function dsPageSize() {
   return Math.max(Math.floor((w + 10) / 150), 1) * 4;
 }
 
-// ★ = chosen exemplar (auto k-center), 📌 = user-pinned. Clicking the
-// badge toggles the pin; pins take effect at the next gallery rebuild.
+// ★ = chosen exemplar (auto k-center), 📌 = user-pinned (always an
+// exemplar), 🚫 = excluded (never one). Clicking the badge cycles
+// auto → pinned → excluded → auto; takes effect at the next gallery
+// rebuild.
 function dsCellHtml(label, im, idPrefix) {
-  return `<div class="cell${im.exemplar ? " exCell" : ""}" id="${idPrefix}${im.index}">
+  const next = im.pinned ? "excluded" : im.excluded ? "none" : "pinned";
+  const badge = im.pinned ? "📌" : im.excluded ? "🚫" : "★";
+  const title = im.pinned
+    ? "pinned — click to exclude from the gallery"
+    : im.excluded
+    ? "excluded from the gallery — click to return to automatic selection"
+    : im.exemplar
+    ? "in gallery (auto) — click to pin permanently"
+    : "click to pin into the gallery";
+  return `<div class="cell${im.exemplar ? " exCell" : ""}${
+       dsSel.has(im.index) ? " sel" : ""}" id="${idPrefix}${im.index}">
      <img src="${im.thumb}" style="cursor:pointer"
        onclick="dsThumbClick(${im.index})">
      <span class="idx">#${im.index}</span>
-     <span class="exBadge${im.pinned ? " pin" : ""}${im.exemplar || im.pinned ? "" : " ghostBadge"}"
-       title="${im.pinned ? "pinned — click to unpin"
-         : im.exemplar ? "in gallery (auto) — click to pin permanently"
-         : "click to pin into the gallery"}"
-       onclick="dsPin('${label.replace(/'/g, "\\'")}', ${im.index}, ${!im.pinned})">${
-       im.pinned ? "📌" : "★"}</span>
+     <span class="exBadge${im.pinned ? " pin" : ""}${
+       im.exemplar || im.pinned || im.excluded ? "" : " ghostBadge"}"
+       title="${title}"
+       onclick="dsPin('${label.replace(/'/g, "\\'")}', ${im.index}, '${next}')">${badge}</span>
    </div>`;
 }
 
@@ -2025,8 +2035,10 @@ async function dsView(label, page = 0) {
     const [j, ex] = await Promise.all([
       api(`/api/dataset/images?label=${enc}&offset=${page * DS_PAGE}&limit=${DS_PAGE}`),
       api(`/api/dataset/images?label=${enc}&exemplars=1&limit=100`)]);
+    // selection survives page flips within a class — only switching to a
+    // different class resets it
+    if (dsCur.label !== label) dsSel.clear();
     dsCur = { label, page, total: j.total };
-    dsSel.clear();
     updateBulkBar();
     $("dsGallery").style.display = "";
     $("dsHint").style.display = "none";
@@ -2037,12 +2049,27 @@ async function dsView(label, page = 0) {
     $("dsExCount").textContent = `— ${label} · ${ex.images.length} in gallery`;
     $("dsExThumbs").innerHTML = ex.images.map(im => dsCellHtml(label, im, "dsExCell_")).join("");
     const pages = Math.max(Math.ceil(j.total / DS_PAGE), 1);
+    // numbered pager: every page when few, first/last + a window around
+    // the current page when many
+    const esc = label.replace(/'/g, "\\'");
+    const pageBtn = p => `<button class="ghost" ${p === page
+        ? 'disabled style="border-color:var(--brass); color:var(--brass)"' : ""}
+        onclick="dsView('${esc}', ${p})">${p + 1}</button>`;
+    const wanted = pages <= 12 ? [...Array(pages).keys()]
+      : [...new Set([0, 1, page - 1, page, page + 1, pages - 2, pages - 1]
+          .filter(p => p >= 0 && p < pages))].sort((a, b) => a - b);
+    let nums = "", prevP = -1;
+    for (const p of wanted) {
+      if (p - prevP > 1) nums += `<span class="muted">…</span>`;
+      nums += pageBtn(p);
+      prevP = p;
+    }
     $("dsPager").innerHTML = pages > 1 ? `
       <button class="ghost" ${page <= 0 ? "disabled" : ""}
-        onclick="dsView('${label}', ${page - 1})">‹ prev</button>
-      <span class="muted">page ${page + 1} of ${pages}</span>
+        onclick="dsView('${esc}', ${page - 1})">‹ prev</button>
+      ${nums}
       <button class="ghost" ${page >= pages - 1 ? "disabled" : ""}
-        onclick="dsView('${label}', ${page + 1})">next ›</button>` : "";
+        onclick="dsView('${esc}', ${page + 1})">next ›</button>` : "";
   } catch (e) { msg("dsMsg", e.message, false); }
 }
 
@@ -2161,6 +2188,7 @@ async function dsBulk(action) {
     const j = await postJson("/api/dataset/bulk", { label: dsCur.label,
       indices: [...dsSel], action, to: action === "move" ? $("dsBulkTo").value : undefined });
     msg("dsMsg", `${action === "move" ? "Moved" : "Deleted"} ${j.processed} image(s)`, true);
+    dsSel.clear();               // the selection was consumed by the action
     await refresh();
     dsView(dsCur.label, 0);
   } catch (e) { msg("dsMsg", e.message, false); }
