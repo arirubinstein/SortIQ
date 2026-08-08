@@ -178,11 +178,14 @@ def submit(name, script):
     wrapper_w = _win_to_wsl(job / "wrapper.sh")
     (job / "exit.marker").unlink(missing_ok=True)
     (job / "running.marker").write_text(time.strftime("%F %T"))
-    # DETACHED_PROCESS: the wsl.exe belongs to no console or session of
-    # ours — it survives anything that happens to this process
+    # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: the wsl.exe gets a
+    # hidden console (DETACHED_PROCESS still flashed a blank window)
+    # and belongs to no process group of ours; Windows children survive
+    # their parent's death regardless, so the job outlives this process
+    # either way
     subprocess.Popen(["wsl", "-d", DIST, "-u", "root", "--",
                       "bash", wrapper_w],
-                     creationflags=0x00000008 | 0x00000200,
+                     creationflags=0x08000000 | 0x00000200,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, close_fds=True)
     print(f"launched {name}")
