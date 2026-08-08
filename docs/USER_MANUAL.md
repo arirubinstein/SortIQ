@@ -175,7 +175,10 @@ sorting from 3 photos with no retraining at all.
   model's eye: it can tell headstamps apart even on brass it has never
   seen, so a new caliber can collect photos, rebuild its gallery, and
   start sorting immediately — train its own recognizer later for full
-  accuracy.
+  accuracy. **Merge model…** copies another model's images into the
+  active one, class by class (new classes are created, the source is
+  left untouched) — the tool for consolidating an experiment back into
+  a main model.
 - **Per class:** **View** opens the gallery (inspect, move mislabeled
   images between classes, bulk-delete), **Rename** renames — or **merges**
   if you rename onto an existing class — and **Delete** wipes the class.
@@ -187,6 +190,13 @@ sorting from 3 photos with no retraining at all.
   coverage, 📌 pinned by you). Click a badge to pin a photo permanently
   into the gallery or exclude a bad one; changes take effect at the next
   gallery rebuild.
+- **Families** — group a headstamp's variants (`FC`, `FC DOTS`,
+  `FC PLAIN`…) under one name. On the Sort page the family assigns to a
+  slot as a single unit, and run reports label the slot by the family.
+  Grouping affects bins and reports only — the model still learns and
+  reports each variant separately, so classes can multiply for accuracy
+  while your physical bins stay simple. **Suggest members** pre-ticks
+  every class starting with the family's name.
 - **Set aside — identify later** — the tray at the top of the page
   collects unknown stamps from reject reviews and captures, clustered by
   similarity. Name a group once to create its class and file every photo
@@ -245,7 +255,11 @@ mislabeled images get caught.
 
 1. Assign headstamps to slots (or leave slots empty and turn on
    **auto-assign** — new stamps claim free slots as they appear, and the
-   assignments persist for next time).
+   assignments persist for next time). If you've defined **families**
+   (Dataset page), the add-dropdown also offers them: assigning a family
+   puts every member class in that slot with one pick — including
+   members added to the family later — and a member explicitly assigned
+   to its own slot overrides its family.
 2. **Start**. Each case is photographed, classified, and dropped; per-slot
    counts tick up live, with the recent-cases feed showing each decision
    and its confidence.

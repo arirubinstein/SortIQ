@@ -55,9 +55,25 @@ class Config:
         self.bins = [normalize_bin(b) for b in
                      list(mj.get("bins") or [])[:self.bin_count]]
         self.bins += [[] for _ in range(self.bin_count - len(self.bins))]
+        # families: a named group of classes assignable to a slot as one
+        # unit. Slots store the intent as a "family:NAME" token (so future
+        # members follow automatically); expansion to real classes happens
+        # here, and ONLY here — the decider and run loop never see
+        # families. An explicit class assignment always beats its
+        # family's slot.
+        self.families = {str(n): [s for s in normalize_bin(m)]
+                         for n, m in (mj.get("families") or {}).items()}
         self.bin_map = {(s, None): i for i, group in enumerate(self.bins)
                         for s in group
-                        if s != "UNMATCHED" and s in self.stamp_labels}
+                        if s != "UNMATCHED" and s in self.stamp_labels
+                        and not s.startswith("family:")}
+        for i, group in enumerate(self.bins):
+            for s in group:
+                if s.startswith("family:"):
+                    for m in self.families.get(s[len("family:"):], []):
+                        if (m in self.stamp_labels
+                                and (m, None) not in self.bin_map):
+                            self.bin_map[(m, None)] = i
         self.unmatched_bin = next((i for i, g in enumerate(self.bins)
                                    if "UNMATCHED" in g), self.bin_count - 1)
         self.floors = mj["floors"]

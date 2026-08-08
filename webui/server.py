@@ -117,8 +117,11 @@ def clean_bins(raw):
     normalized here on the next write."""
     from sorter.config import normalize_bin
     stamps = set(raw["stamp_labels"])
+    fams = set((raw.get("families") or {}).keys())
     raw["bins"] = [[s for s in normalize_bin(b)
-                    if s == "UNMATCHED" or s in stamps]
+                    if s == "UNMATCHED" or s in stamps
+                    or (s.startswith("family:")
+                        and s[len("family:"):] in fams)]
                    for b in raw.get("bins", [])]
 
 
@@ -553,6 +556,7 @@ def api_state():
         "model": cfg.model_name,
         "profiles": profiles.list_profiles(ROOT),
         "stamp_labels": cfg.stamp_labels,
+        "families": cfg.families,
         "bins": cfg.bins,
         "bin_count": cfg.bin_count,
         "slots_enabled": cfg.slots_enabled,
@@ -683,6 +687,40 @@ def api_model_merge():
                     "pairs_copied": sum(copied.values()),
                     "per_class": copied, "new_classes": new_classes,
                     "crops": n_crops})
+
+
+@app.post("/api/families")
+def api_families():
+    """Create, update, or delete a family — a named group of classes
+    that a slot can hold as one unit (stored in bins as a
+    "family:NAME" token, expanded at config load). Members are
+    validated against the class list; deleting a family also pulls its
+    token out of any slot so no orphan tokens linger."""
+    from sorter.config import normalize_bin
+    body = request.get_json() or {}
+    name = (body.get("name") or "").strip().upper()
+    if not name or any(c in name for c in "/\\:"):
+        return jsonify({"error": "a family needs a simple name "
+                        "(no slashes or colons)"}), 400
+    with _config_lock:
+        raw = active_model_raw()
+        fams = raw.setdefault("families", {})
+        if body.get("delete"):
+            fams.pop(name, None)
+            raw["bins"] = [[s for s in normalize_bin(b)
+                            if s != f"family:{name}"]
+                           for b in raw.get("bins", [])]
+        else:
+            known = set(raw["stamp_labels"])
+            members = sorted({str(s) for s in (body.get("members") or [])
+                              if s in known})
+            if not members:
+                return jsonify({"error": "pick at least one member "
+                                "class"}), 400
+            fams[name] = members
+        write_active_model(raw)
+    load_cfg()
+    return jsonify({"ok": True, "families": raw.get("families", {})})
 
 
 @app.post("/api/model/delete")

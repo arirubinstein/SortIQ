@@ -398,6 +398,28 @@
   </div>
 </div>
 
+<div id="mergeModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55);
+     z-index:50; align-items:center; justify-content:center">
+  <div class="card" style="width:min(500px, 92vw)">
+    <h2 style="margin-top:0">Merge a model into <span id="mmTarget"></span></h2>
+    <label>Copy images from</label>
+    <select id="mmSource"></select>
+    <div class="muted" style="margin-top:8px; font-size:12.5px">
+      Every class in the source is copied into the active model —
+      images are renumbered after the existing ones, classes the active
+      model doesn't have are created, and the source model is left
+      untouched (delete it separately once you've verified the result).
+      Crops rebuild automatically; expect a few minutes on a large
+      source. Rebuild the gallery afterwards.
+    </div>
+    <div class="msg" id="mmMsg"></div>
+    <div class="ctlRow" style="margin-top:12px; justify-content:flex-end">
+      <button class="ghost" id="mmCancel">Cancel</button>
+      <button class="primary" id="mmGo">Merge</button>
+    </div>
+  </div>
+</div>
+
 <!-- Pi network dialog (opened from the header) -->
 <div id="netModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55);
      z-index:50; align-items:center; justify-content:center">
@@ -906,6 +928,8 @@
         <select id="selModel" style="min-width:160px"></select>
       </div>
       <button class="primary" id="btnNewModel2">＋ New model</button>
+      <button class="ghost" id="btnMergeModel"
+        title="copy another model's images into this one, class by class">Merge model…</button>
       <button class="ghost danger" id="btnDeleteModel">Delete model</button>
     </div>
     <div class="msg" id="selMsg"></div>
@@ -939,6 +963,27 @@
     </div>
     <div id="dsMgr" class="dsMgrGrid"></div>
     <div class="msg" id="dsMsg"></div>
+  </div>
+  <div class="card">
+    <h2>Families</h2>
+    <div class="muted" style="margin-bottom:8px">
+      A family groups a headstamp's variants under one name. On the Sort
+      page, assign the family to a slot and every member sorts there — a
+      member given its own slot overrides. Grouping affects bins and
+      reports only; the model still learns each variant separately.
+    </div>
+    <div id="famList" style="margin-bottom:8px"></div>
+    <div class="ctlRow">
+      <input type="text" id="famName" placeholder="family name — e.g. FC"
+             style="max-width:170px">
+      <button class="ghost" id="btnFamSuggest"
+              title="tick every class whose name is the family name or starts with it">Suggest members</button>
+      <button class="primary" id="btnFamSave">Save family</button>
+    </div>
+    <div id="famMembers" style="display:grid; margin-top:8px;
+         grid-template-columns:repeat(auto-fill, minmax(170px, 1fr));
+         gap:2px 14px"></div>
+    <div class="msg" id="famMsg"></div>
   </div>
   <div class="card">
     <h2>Dataset maintenance</h2>
@@ -1521,6 +1566,36 @@ function renderModelSelect() {
   $("selModel").onchange = () => switchModel($("selCart").value, $("selModel").value);
 }
 $("btnNewModel2").onclick = () => openModelModal();
+$("btnMergeModel").onclick = () => {
+  const others = ((STATE.profiles || {})[STATE.cartridge] || [])
+    .filter(m => m !== STATE.model);
+  if (!others.length)
+    return msg("selMsg", "no other model in this caliber to merge from", false);
+  $("mmTarget").textContent = `${STATE.cartridge} / ${STATE.model}`;
+  $("mmSource").innerHTML = others.map(m => `<option>${m}</option>`).join("");
+  $("mmMsg").textContent = "";
+  $("mergeModal").style.display = "flex";
+};
+$("mmCancel").onclick = () => { $("mergeModal").style.display = "none"; };
+$("mmGo").onclick = async () => {
+  const src = $("mmSource").value;
+  if (!confirm(`Copy every image from ${STATE.cartridge}/${src} into `
+      + `${STATE.cartridge}/${STATE.model}? This adds images and classes; `
+      + `it never removes anything.`)) return;
+  $("mmGo").disabled = true;
+  msg("mmMsg", "merging — this can take a few minutes…", true);
+  try {
+    const j = await postJson("/api/model/merge",
+                             { cartridge: STATE.cartridge, model: src });
+    $("mergeModal").style.display = "none";
+    msg("selMsg", `merged ${j.pairs_copied} image(s) from ${src}`
+      + (j.new_classes.length
+          ? ` — new classes: ${j.new_classes.join(", ")}` : "")
+      + " — rebuild the gallery when you're done", true);
+    await refresh();
+  } catch (e) { msg("mmMsg", e.message, false); }
+  $("mmGo").disabled = false;
+};
 $("btnDeleteModel").onclick = async () => {
   const cartridge = STATE.cartridge, model = STATE.model;
   if (!confirm(`Delete model ${cartridge} / ${model}? This removes its headstamps, `
@@ -1651,8 +1726,67 @@ function renderDatasetMgr() {
         <button class="ghost" onclick="dsRename('${l}')">Rename</button>
         <button class="ghost danger" onclick="dsReset('${l}')">Delete</button></div>`).join("")
     : `<div class="muted">nothing collected yet</div>`;
+  renderFamilies();
 }
 $("dsSortN").onchange = renderDatasetMgr;
+
+/* ------------------- families (variant groups for bins) ------------- */
+function renderFamilies() {
+  const fams = STATE.families || {};
+  const names = Object.keys(fams).sort();
+  $("famList").innerHTML = names.length
+    ? names.map(n => `<div class="dsRow">
+        <span class="lbl" style="color:var(--brass)">${n}</span>
+        <span class="muted" style="font-size:12px">${fams[n].length} classes:
+          ${fams[n].join(", ")}</span>
+        <button class="ghost" onclick="famEdit('${n.replace(/'/g, "\\'")}')">Edit</button>
+        <button class="ghost danger" onclick="famDelete('${n.replace(/'/g, "\\'")}')">Delete</button>
+      </div>`).join("")
+    : `<div class="muted">no families yet — name one below and pick its members</div>`;
+  const checked = new Set(fams[$("famName").value.trim().toUpperCase()] || []);
+  $("famMembers").innerHTML = [...STATE.stamp_labels].sort()
+    .map(s => `<label style="display:flex; gap:6px; align-items:center;
+        font-size:12.5px; cursor:pointer">
+      <input type="checkbox" class="famChk" value="${s}"
+        ${checked.has(s) ? "checked" : ""} style="margin:0"> ${s}</label>`)
+    .join("");
+}
+function famEdit(name) {
+  $("famName").value = name;
+  const members = new Set((STATE.families || {})[name] || []);
+  document.querySelectorAll(".famChk").forEach(c =>
+    c.checked = members.has(c.value));
+}
+async function famDelete(name) {
+  if (!confirm(`Delete family ${name}? Its member classes are untouched — `
+      + `only the grouping (and any slot the family is assigned to) goes.`))
+    return;
+  try {
+    const j = await postJson("/api/families", { name, delete: true });
+    STATE.families = j.families;
+    msg("famMsg", `family ${name} deleted`, true);
+    renderFamilies();
+  } catch (e) { msg("famMsg", e.message, false); }
+}
+$("btnFamSuggest").onclick = () => {
+  const n = $("famName").value.trim().toUpperCase();
+  if (!n) return msg("famMsg", "type the family name first", false);
+  document.querySelectorAll(".famChk").forEach(c =>
+    c.checked = c.value === n || c.value.startsWith(n + " "));
+};
+$("btnFamSave").onclick = async () => {
+  const name = $("famName").value.trim().toUpperCase();
+  const members = [...document.querySelectorAll(".famChk")]
+    .filter(c => c.checked).map(c => c.value);
+  if (!name) return msg("famMsg", "type a family name", false);
+  if (!members.length) return msg("famMsg", "tick at least one member class", false);
+  try {
+    const j = await postJson("/api/families", { name, members });
+    STATE.families = j.families;
+    msg("famMsg", `family ${name} saved — ${members.length} classes`, true);
+    renderFamilies();
+  } catch (e) { msg("famMsg", e.message, false); }
+};
 $("trSortN").onchange = () => renderReadiness();   // instant, purely visual
 
 /* ---- mislabel scan: the models second-guess every stored label ---- */
@@ -4227,7 +4361,8 @@ function drawDisc(el, highlight, counts) {
   const en = new Set(STATE.slots_enabled || STATE.bins.map((_, i) => i));
   const entries = STATE.bins.map(binGroup).map((group, i) => ({
     id: i,
-    label: en.has(i) ? (group.join(" ") || "empty") : "off",
+    label: en.has(i)
+      ? (group.map(binEntryLabel).join(" ") || "empty") : "off",
     reject: group.includes("UNMATCHED"),
     empty: !group.length,
     disabled: !en.has(i),
@@ -4275,6 +4410,19 @@ function binGroup(g) {
   if (g == null || g === "") return [];
   return Array.isArray(g) ? g.filter(Boolean) : [g];
 }
+// families: a slot can hold a "family:NAME" token meaning every member
+// class of that family — expansion for display/accounting mirrors the
+// server's (an explicit class assignment elsewhere beats the family)
+const FAM = "family:";
+const famName = s => s.slice(FAM.length);
+const famMembers = s =>
+  ((STATE.families || {})[famName(s)] || []);
+function binClasses(group) {          // group incl. tokens -> class list
+  return [...new Set(binGroup(group).flatMap(
+    s => s.startsWith(FAM) ? famMembers(s) : [s]))];
+}
+const binEntryLabel = s => s.startsWith(FAM)
+  ? `${famName(s)} family` : s;
 function renderBins() {
   const list = $("binList");
   if (!list) return;
@@ -4283,9 +4431,14 @@ function renderBins() {
   list.style.setProperty("--slots", nSlots);
   STATE.bins = STATE.bins.map(binGroup);
   const en = new Set(STATE.slots_enabled || STATE.bins.map((_, i) => i));
-  const assigned = new Set(STATE.bins.flat());
+  const assigned = new Set(STATE.bins.flat());            // literal entries
+  const covered = new Set(STATE.bins.flatMap(binClasses)); // incl. family members
   const stamps = [...STATE.stamp_labels].sort((a, b) => a.localeCompare(b));
+  // a class covered only via its family stays offered — placing it
+  // explicitly overrides the family's slot for that class
   const free = stamps.filter(s => !assigned.has(s));
+  const famFree = Object.keys(STATE.families || {})
+    .filter(n => !assigned.has(FAM + n)).sort();
   STATE.bins.forEach((group, i) => {
     if (!en.has(i)) return;      // disabled slots: no tray, no editor
     const isUM = group.includes("UNMATCHED");
@@ -4293,13 +4446,23 @@ function renderBins() {
     div.className = "binSlot" + (isUM ? " um" : "");
     const chips = group.map(s => s === "UNMATCHED"
       ? `<span class="pill bad" style="flex:none">UNMATCHED</span>`
+      : s.startsWith(FAM)
+      ? `<span class="chip sel" style="cursor:default; border-color:var(--brass); color:var(--brass)"
+           title="${famMembers(s).join(", ") || "empty family"}">${famName(s)}
+           ×${famMembers(s).length}<a class="binRm"
+           data-slot="${i}" data-stamp="${s}"
+           style="cursor:pointer; margin-left:5px; opacity:.7">×</a></span>`
       : `<span class="chip sel" style="cursor:default">${s}<a class="binRm"
            data-slot="${i}" data-stamp="${s}"
            style="cursor:pointer; margin-left:5px; opacity:.7">×</a></span>`).join("");
     // several variants of one make can share a slot (mirrors the original
     // app's per-slot checkboxes) — the add-dropdown offers only stamps not
-    // already assigned somewhere, plus relocating the catch-all
-    const addOpts = free.map(s => `<option>${s}</option>`).join("") +
+    // already assigned somewhere, plus families and the catch-all
+    const addOpts =
+      famFree.map(n => `<option value="${FAM}${n}">${n} — family (${
+        ((STATE.families || {})[n] || []).length} classes)</option>`).join("") +
+      free.map(s => `<option value="${s}">${s}${covered.has(s)
+        ? " (in a family)" : ""}</option>`).join("") +
       (!isUM && !group.length
         ? `<option value="__UM__">UNMATCHED (make catch-all)</option>` : "");
     div.innerHTML = `<div class="binHead"><span>Bin ${i}</span>
@@ -4338,7 +4501,8 @@ $("flStamp").onchange = () => saveFloors();
 $("flSharp").onchange = () => saveFloors();
 
 function updateUnassignedNote() {
-  const assigned = new Set(STATE.bins.flat().filter(s => s !== "UNMATCHED"));
+  const assigned = new Set(STATE.bins.flatMap(binClasses)
+    .filter(s => s !== "UNMATCHED"));
   const unassigned = STATE.stamp_labels.filter(s => !assigned.has(s));
   $("unassignedNote").textContent = unassigned.length
     ? `Not in any bin (will be sorted to UNMATCHED): ${unassigned.sort().join(", ")}`
@@ -4507,6 +4671,11 @@ async function pollRun() {
         if (!sl) return g;
         const stamps = [...(sl.stamps || [])];
         if (sl.catch_all) stamps.push("UNMATCHED");
+        // when a family token already covers exactly these classes,
+        // keep the token — never overwrite intent with its expansion
+        const cur = binClasses(g);
+        if (JSON.stringify([...stamps].sort()) ===
+            JSON.stringify([...new Set(cur)].sort())) return g;
         return stamps;
       });
       if (JSON.stringify(owners) !== JSON.stringify(STATE.bins)) {
@@ -4622,7 +4791,7 @@ async function loadReport(runId) {
         (byCls[s] = byCls[s] || []).push(c);
       });
       const raw = (STATE.bins || [])[+b];
-      const mapped = new Set(Array.isArray(raw) ? raw : raw ? [raw] : []);
+      const mapped = new Set(binClasses(raw));
       const names = Object.keys(byCls).sort((a, z) =>
         (mapped.has(z) - mapped.has(a)) || (byCls[z].length - byCls[a].length)
         || a.localeCompare(z));
@@ -4639,7 +4808,9 @@ async function loadReport(runId) {
           <span style="flex:1"></span>
           <span style="font-size:12px; font-weight:600;
                 color:rgba(0,0,0,.62)">slot holds: ${
-            mapped.size ? [...mapped].join(", ") : "nothing mapped"}</span>
+            binGroup(raw).length
+              ? binGroup(raw).map(binEntryLabel).join(", ")
+              : "nothing mapped"}</span>
         </div>`;
       if (names.length < 2)
         return head + `<div class="revGrid">${cs.map(caseCard).join("")}</div>`;
