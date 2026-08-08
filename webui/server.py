@@ -817,7 +817,11 @@ def api_classes():
                 return jsonify({"error": "exactly one bin must be UNMATCHED"}), 400
             if len(named) != len(set(named)):
                 return jsonify({"error": "a headstamp can only occupy one bin"}), 400
-            if any(s not in stamps for s in named):
+            fams = set((raw.get("families") or {}).keys())
+            if any(s not in stamps
+                   and not (s.startswith("family:")
+                            and s[len("family:"):] in fams)
+                   for s in named):
                 return jsonify({"error": "bin assigned to an unknown headstamp"}), 400
             raw["bins"] = bins
         if "floors" in body:
