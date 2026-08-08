@@ -196,7 +196,11 @@ sorting from 3 photos with no retraining at all.
   Grouping affects bins and reports only — the model still learns and
   reports each variant separately, so classes can multiply for accuracy
   while your physical bins stay simple. **Suggest members** pre-ticks
-  every class starting with the family's name.
+  every class starting with the family's name. Families also soften the
+  "too close to call" gate in the one case where it can't matter: a
+  coin-flip between two variants that share a family *and* a slot sorts
+  anyway — the case lands in the same chute either way — while variants
+  routed to different slots keep the strict gate.
 - **Set aside — identify later** — the tray at the top of the page
   collects unknown stamps from reject reviews and captures, clustered by
   similarity. Name a group once to create its class and file every photo
