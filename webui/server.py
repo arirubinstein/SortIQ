@@ -1748,6 +1748,12 @@ def api_dataset_images():
         # (auto-picked + pinned), all of them, no pagination games
         all_a = [p for p in all_a
                  if crop_name(p) in ex_names or crop_name(p) in pin_names]
+    if request.args.get("list"):
+        # navigation support (the detail modal's prev/next): the whole
+        # class's ordered index list, no thumbnails, effectively free
+        return jsonify({"label": label,
+                        "indices": [int(p.name.split("_")[0])
+                                    for p in all_a]})
     items = []
     # gallery shows the training CROP (what the model sees), not the raw
     # frame; raw is the fallback when the crop hasn't been rebuilt yet

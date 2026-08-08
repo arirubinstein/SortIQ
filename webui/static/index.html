@@ -1059,7 +1059,7 @@
        background:rgba(10,12,16,.72); align-items:center; justify-content:center"
        onclick="if(event.target===this) dsCloseDetail()">
     <div style="background:var(--panel); border:1px solid var(--line);
-         border-radius:10px; max-width:520px; width:92%; max-height:88vh;
+         border-radius:10px; width:min(780px, 94vw); max-height:92vh;
          overflow-y:auto; padding:18px 22px; box-shadow:0 12px 40px rgba(0,0,0,.5)">
       <div style="display:flex; justify-content:space-between; align-items:baseline">
         <h2 style="margin:0 0 10px">Selected image</h2>
@@ -2171,8 +2171,8 @@ async function dsView(label, page = 0) {
       api(`/api/dataset/images?label=${enc}&offset=${page * DS_PAGE}&limit=${DS_PAGE}`),
       api(`/api/dataset/images?label=${enc}&exemplars=1&limit=100`)]);
     // selection survives page flips within a class — only switching to a
-    // different class resets it
-    if (dsCur.label !== label) dsSel.clear();
+    // different class resets it (and stales the detail modal's nav list)
+    if (dsCur.label !== label) { dsSel.clear(); dsNav.label = null; }
     dsCur = { label, page, total: j.total };
     updateBulkBar();
     $("dsGallery").style.display = "";
@@ -2347,25 +2347,70 @@ function moveTargets(current) {
   return [...targets].sort();
 }
 
+// prev/next state for the detail modal: the class's full ordered index
+// list, so you can walk every image one by one (across pages) the way
+// the mislabel-scan modal walks its flagged list
+let dsNav = { label: null, indices: [] };
+
 async function dsDetail(label, index) {
   try {
+    if (dsNav.label !== label) {
+      const l = await api(`/api/dataset/images?label=${encodeURIComponent(label)}&list=1`);
+      dsNav = { label, indices: l.indices || [] };
+    }
+    const esc = label.replace(/'/g, "\\'");
+    const pos = dsNav.indices.indexOf(index);
+    const prev = pos > 0 ? dsNav.indices[pos - 1] : null;
+    const next = pos >= 0 && pos < dsNav.indices.length - 1
+      ? dsNav.indices[pos + 1] : null;
     const j = await api(`/api/dataset/pair?label=${encodeURIComponent(label)}&index=${index}`);
     const opts = moveTargets(label).map(t => `<option>${t}</option>`).join("");
     $("dsImgModal").style.display = "flex";
     $("dsDetail").innerHTML = `
-      <h3 style="margin-top:0">${label} #${index}${j.a_sharpness ? ` <span class="muted">· sharpness ${j.a_sharpness}</span>` : ""}</h3>
-      <div class="muted">Raw photo</div>
+      <div style="display:flex; gap:10px; align-items:baseline; flex-wrap:wrap">
+        <h3 style="margin:0">${label} #${index}${j.a_sharpness ? ` <span class="muted">· sharpness ${j.a_sharpness}</span>` : ""}</h3>
+        <span style="flex:1"></span>
+        <button class="ghost" id="dsPrevBtn" ${prev === null ? "disabled" : ""}
+          onclick="dsDetail('${esc}', ${prev})">‹ prev</button>
+        <span class="muted" style="font-size:12px">${pos + 1} of ${dsNav.indices.length}</span>
+        <button class="ghost" id="dsNextBtn" ${next === null ? "disabled" : ""}
+          onclick="dsDetail('${esc}', ${next})">next ›</button>
+      </div>
+      <div class="muted" style="margin-top:6px">Raw photo <span style="font-size:11px">(←/→ keys navigate)</span></div>
       ${j.a ? `<img class="thumb" src="${j.a}">` : `<div class="muted">missing</div>`}
       <div class="muted" style="margin-top:8px">→ what the model trains on</div>
-      ${j.head_crop ? `<img class="thumb" src="${j.head_crop}" style="max-width:240px">` : `<div class="muted">—</div>`}
+      ${j.head_crop ? `<img class="thumb" src="${j.head_crop}" style="max-width:280px">` : `<div class="muted">—</div>`}
       <div class="ctlRow" style="margin-top:12px; flex-wrap:wrap">
         <label style="margin:0">Move to</label>
         <select id="dsMoveTo" style="max-width:200px">${opts}</select>
-        <button class="ghost" onclick="dsMove('${label}', ${index})">Move</button>
-        <button class="ghost danger" onclick="dsDelPair('${label}', ${index}); dsCloseDetail()">Delete</button>
+        <button class="ghost" onclick="dsMove('${esc}', ${index})">Move</button>
+        <button class="ghost danger" onclick="dsDelNav('${esc}', ${index})">Delete</button>
       </div>`;
   } catch (e) { msg("dsMsg", e.message, false); }
 }
+
+// after a move/delete, step to the image now occupying this position —
+// the triage rhythm: judge, act, next
+function dsNavAdvance(label, index) {
+  const pos = dsNav.indices.indexOf(index);
+  if (pos >= 0) dsNav.indices.splice(pos, 1);
+  const nxt = dsNav.indices[Math.min(Math.max(pos, 0),
+                                     dsNav.indices.length - 1)];
+  if (nxt === undefined) dsCloseDetail();
+  else dsDetail(label, nxt);
+}
+
+async function dsDelNav(label, index) {
+  await dsDelPair(label, index);
+  dsNavAdvance(label, index);
+}
+
+document.addEventListener("keydown", e => {
+  if ($("dsImgModal").style.display !== "flex") return;
+  if (e.key === "ArrowLeft") { const b = $("dsPrevBtn"); if (b && !b.disabled) b.click(); }
+  else if (e.key === "ArrowRight") { const b = $("dsNextBtn"); if (b && !b.disabled) b.click(); }
+  else if (e.key === "Escape") dsCloseDetail();
+});
 
 function dsCloseDetail() {
   $("dsImgModal").style.display = "none";
@@ -2376,9 +2421,9 @@ async function dsMove(label, index) {
     const j = await postJson("/api/dataset/move",
       { label, index, to: $("dsMoveTo").value });
     msg("dsMsg", `Moved to ${j.moved_to}`, true);
-    dsCloseDetail();
     await refresh();
     dsView(label, dsCur.page);
+    dsNavAdvance(label, index);      // stay in the walk: next image up
   } catch (e) { msg("dsMsg", e.message, false); }
 }
 
