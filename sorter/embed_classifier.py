@@ -205,8 +205,26 @@ class EmbedDecider:
             return dd(rej, stamp=stamp, stamp_conf=sim,
                       reason="stamp_low_conf")
         if r["margin"] < self.ec.margin_floor:
-            return dd(rej, stamp=stamp, stamp_conf=sim,
-                      reason="stamp_ambiguous")
+            # family-aware margin: a coin-flip between two variants that
+            # share a family AND a physical bin changes nothing — the
+            # case lands in the same chute whichever way it falls, so
+            # the ambiguity is not actionable and rejecting it would
+            # only tax the unmatched bin. Capture mode has no bin map,
+            # so labeling keeps the strict gate (a variant flip DOES
+            # matter for review cards), and variants routed to
+            # different bins keep it too.
+            runner = r["runner"]
+            same_family = any(stamp in m and runner in m
+                              for m in getattr(self.cfg, "families",
+                                               {}).values())
+            wb = self.cfg.bin_map.get((stamp, None))
+            same_bin = (wb is not None
+                        and wb == self.cfg.bin_map.get((runner, None)))
+            if not (same_family and same_bin):
+                return dd(rej, stamp=stamp, stamp_conf=sim,
+                          reason="stamp_ambiguous")
+            det["family_tie"] = True     # audit trail: accepted because
+                                         # the tie is intra-family
         # rotation flicker probe (LOGGED, never gates): a real member of
         # a class reads the same from every angle; strangers riding an
         # accidental resemblance often flip class between views.
