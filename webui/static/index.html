@@ -966,24 +966,31 @@
     <div class="msg" id="dsMsg"></div>
   </div>
   <div class="card">
-    <h2>Families</h2>
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:6px">
+      <h2 style="margin:0">Families</h2>
+      <span style="flex:1"></span>
+      <button class="ghost" id="btnFamNew">＋ New family</button>
+    </div>
     <div class="muted" style="margin-bottom:8px">
-      A family groups a headstamp's variants under one name. On the Sort
-      page, assign the family to a slot and every member sorts there — a
-      member given its own slot overrides. Grouping affects bins and
-      reports only; the model still learns each variant separately.
+      A family groups a headstamp's variants under one name — assign it to
+      a slot on the Sort page and every member sorts there (a member with
+      its own slot overrides). Bins and reports only; the model still
+      learns each variant separately.
     </div>
     <div id="famList" style="margin-bottom:8px"></div>
-    <div class="ctlRow">
-      <input type="text" id="famName" placeholder="family name — e.g. FC"
-             style="max-width:170px">
-      <button class="ghost" id="btnFamSuggest"
-              title="tick every class whose name is the family name or starts with it">Suggest members</button>
-      <button class="primary" id="btnFamSave">Save family</button>
+    <div id="famEditor" style="display:none">
+      <div class="ctlRow">
+        <input type="text" id="famName" placeholder="family name — e.g. FC"
+               style="max-width:170px">
+        <button class="ghost" id="btnFamSuggest"
+                title="tick every class whose name is the family name or starts with it">Suggest members</button>
+        <button class="primary" id="btnFamSave">Save family</button>
+        <button class="ghost" id="btnFamCancel">Cancel</button>
+      </div>
+      <div id="famMembers" style="display:grid; margin-top:8px;
+           grid-template-columns:repeat(auto-fill, minmax(170px, 1fr));
+           gap:2px 14px"></div>
     </div>
-    <div id="famMembers" style="display:grid; margin-top:8px;
-         grid-template-columns:repeat(auto-fill, minmax(170px, 1fr));
-         gap:2px 14px"></div>
     <div class="msg" id="famMsg"></div>
   </div>
   <div class="card">
@@ -1723,7 +1730,7 @@ function renderDatasetMgr() {
     ? labels.map(l => `<div class="dsRow"><span class="lbl" title="${l}"
           style="color:${classTier(raw[l])}">${l}</span>
         <span class="n" title="${raw[l]} images">${raw[l]}</span>
-        <button class="ghost" onclick="dsView('${l}')">View</button>
+        <button class="ghost" onclick="dsView('${l}', 0, true)">View</button>
         <button class="ghost" onclick="dsRename('${l}')">Rename</button>
         <button class="ghost danger" onclick="dsReset('${l}')">Delete</button></div>`).join("")
     : `<div class="muted">nothing collected yet</div>`;
@@ -1757,7 +1764,18 @@ function famEdit(name) {
   const members = new Set((STATE.families || {})[name] || []);
   document.querySelectorAll(".famChk").forEach(c =>
     c.checked = members.has(c.value));
+  $("famEditor").style.display = "";
 }
+$("btnFamNew").onclick = () => {
+  $("famName").value = "";
+  document.querySelectorAll(".famChk").forEach(c => c.checked = false);
+  $("famEditor").style.display = "";
+  $("famName").focus();
+};
+$("btnFamCancel").onclick = () => {
+  $("famEditor").style.display = "none";
+  msg("famMsg", "", true);
+};
 async function famDelete(name) {
   if (!confirm(`Delete family ${name}? Its member classes are untouched — `
       + `only the grouping (and any slot the family is assigned to) goes.`))
@@ -1785,6 +1803,7 @@ $("btnFamSave").onclick = async () => {
     const j = await postJson("/api/families", { name, members });
     STATE.families = j.families;
     msg("famMsg", `family ${name} saved — ${members.length} classes`, true);
+    $("famEditor").style.display = "none";
     renderFamilies();
   } catch (e) { msg("famMsg", e.message, false); }
 };
@@ -2163,7 +2182,7 @@ function dsCellHtml(label, im, idPrefix) {
    </div>`;
 }
 
-async function dsView(label, page = 0) {
+async function dsView(label, page = 0, scrollTo = false) {
   try {
     const DS_PAGE = dsPageSize();
     const enc = encodeURIComponent(label);
@@ -2205,6 +2224,10 @@ async function dsView(label, page = 0) {
       ${nums}
       <button class="ghost" ${page >= pages - 1 ? "disabled" : ""}
         onclick="dsView('${esc}', ${page + 1})">next ›</button>` : "";
+    // the View button's only visible effect used to happen below the
+    // fold — bring the gallery to the user on the initial click (page
+    // flips deliberately don't yank the scroll position)
+    if (scrollTo) $("dsGallery").scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (e) { msg("dsMsg", e.message, false); }
 }
 
@@ -2372,17 +2395,21 @@ async function dsDetail(label, index) {
       ${j.a ? `<img class="thumb" src="${j.a}" style="max-height:46vh; width:auto; max-width:100%">` : `<div class="muted">missing</div>`}
       <div class="muted" style="margin-top:8px">→ what the model trains on</div>
       ${j.head_crop ? `<img class="thumb" src="${j.head_crop}" style="max-width:220px; max-height:24vh">` : `<div class="muted">—</div>`}
-      <div class="ctlRow" style="margin-top:12px; flex-wrap:wrap">
-        <label style="margin:0">Move to</label>
-        <select id="dsMoveTo" style="max-width:200px">${opts}</select>
-        <button class="ghost" onclick="dsMove('${esc}', ${index})">Move</button>
-        <button class="ghost danger" onclick="dsDelNav('${esc}', ${index})">Delete</button>
-        <span style="flex:1"></span>
-        <button class="ghost" id="dsPrevBtn" ${prev === null ? "disabled" : ""}
-          onclick="dsDetail('${esc}', ${prev})">‹ prev</button>
-        <span class="muted" style="font-size:12px">${pos + 1} of ${dsNav.indices.length}</span>
-        <button class="ghost" id="dsNextBtn" ${next === null ? "disabled" : ""}
-          onclick="dsDetail('${esc}', ${next})">next ›</button>
+      <div style="margin-top:12px; display:flex; gap:8px 14px; align-items:center;
+           justify-content:space-between; flex-wrap:wrap">
+        <div style="display:flex; gap:8px; align-items:center; flex:none">
+          <label style="margin:0">Move to</label>
+          <select id="dsMoveTo" style="max-width:150px">${opts}</select>
+          <button class="ghost" onclick="dsMove('${esc}', ${index})">Move</button>
+          <button class="ghost danger" onclick="dsDelNav('${esc}', ${index})">Delete</button>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex:none">
+          <button class="ghost" id="dsPrevBtn" ${prev === null ? "disabled" : ""}
+            onclick="dsDetail('${esc}', ${prev})">‹ prev</button>
+          <span class="muted" style="font-size:12px">${pos + 1} of ${dsNav.indices.length}</span>
+          <button class="ghost" id="dsNextBtn" ${next === null ? "disabled" : ""}
+            onclick="dsDetail('${esc}', ${next})">next ›</button>
+        </div>
       </div>`;
   } catch (e) { msg("dsMsg", e.message, false); }
 }
