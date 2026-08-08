@@ -3181,6 +3181,19 @@ class _TrainFail(Exception):
     pass
 
 
+def _keep_awake():
+    """Reset Windows' idle-sleep timer — called on every training poll
+    tick. Modern Standby kills the WSL VM (and with it a running GPU
+    job) even though ordinary processes survive, so an unattended
+    overnight training dies silently ~20 minutes after the operator
+    walks away. Ticking ES_SYSTEM_REQUIRED holds the machine up only
+    while a job is actually running; once polling stops, normal power
+    behavior resumes on its own."""
+    if os.name == "nt":
+        import ctypes
+        ctypes.windll.kernel32.SetThreadExecutionState(0x00000001)
+
+
 def _train_gpu():
     """Submit the teacher->distill chain via gpu_run and babysit its file
     markers. The job script mirrors the proven overnight scripts: stage
@@ -3238,6 +3251,7 @@ def _train_gpu():
     log, marker = job / "run.log", job / "exit.marker"
     t0 = time.time()
     while time.time() - t0 < 8 * 3600:
+        _keep_awake()
         time.sleep(15)
         if log.exists():
             text = log.read_text(encoding="utf-8", errors="replace")
@@ -3278,6 +3292,7 @@ def _train_cpu():
                                  stdout=sink, stderr=subprocess.STDOUT,
                                  creationflags=flags)
         while p.poll() is None:
+            _keep_awake()
             time.sleep(10)
             with open(log_path, "rb") as f:
                 f.seek(offset)
@@ -3624,6 +3639,8 @@ def api_train_remote():
                             raise
                         time.sleep(2 * (attempt + 1))
                 train_status["pulled"] += len(chunk)
+                _keep_awake()          # a first full sync can outlast
+                                       # the idle-sleep timeout
 
             # adopt the machine's profile locally (imaging config included),
             # then rebuild crops so they match the pulled raws exactly
