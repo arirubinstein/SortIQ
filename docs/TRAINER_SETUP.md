@@ -52,6 +52,13 @@ workflow is two tabs: the machine's app for collecting and sorting, and
    whenever this PC is on. Undo any time by running the same file from a
    terminal with `remove`:
    `tools\trainer_autostart_windows.bat remove`.
+7. **Also recommended — the watchdog:** double-click
+   **`trainer_watchdog_windows.bat`** in the same folder. It installs a
+   scheduled task that checks every 2 minutes and silently relaunches
+   the trainer if it has stopped (background servers do occasionally
+   die without a trace). Each revival is noted in `watchdog.log`, and
+   the same file with `remove` uninstalls it. Autostart covers login;
+   the watchdog covers the rest of the day.
 
 Note on GPUs: recent TensorFlow has no native Windows GPU support, so
 the trainer offers two ways to run a full retraining. **CPU** works out

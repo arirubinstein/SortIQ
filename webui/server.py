@@ -2099,10 +2099,14 @@ def api_dataset_scan():
                 if frame is None:
                     _scan_status["done"] += 1
                     continue
-                r = sh.predict(imaging.crop_head(frame))
+                # leave-one-out: if this image is serving as an exemplar,
+                # mask its own gallery seat so it can't vouch for itself
+                cls = parse_label(label)[0]
+                own = f"{cls}/{label}_{p.name.split('_')[0]}_A.png"
+                r = sh.predict(imaging.crop_head(frame), exclude_path=own)
                 # flag only reads live sorting would ACT on: wrong class,
                 # over that class's bar, clear of the runner-up
-                if (r["stamp"] != parse_label(label)[0] and r["accept"]):
+                if (r["stamp"] != cls and r["accept"]):
                     flagged.append({
                         "label": label, "index": int(p.name.split("_")[0]),
                         "pred": r["stamp"], "conf": round(r["sim"], 3)})

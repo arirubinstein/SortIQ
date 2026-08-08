@@ -3516,7 +3516,9 @@ async function openTrainModal() {
       <p class="muted" style="font-size:12.5px">Tired of starting it by hand?
       On Windows, double-click <code>tools\\trainer_autostart_windows.bat</code>
       once — the trainer then starts silently at every login and this
-      button just works.</p>
+      button just works. Add <code>tools\\trainer_watchdog_windows.bat</code>
+      too and a crashed trainer revives itself within 2 minutes — if the
+      watchdog is installed, just hit Retry in a moment.</p>
       <div class="ctlRow" style="margin-top:10px">
         <button class="primary" onclick="openTrainModal()">Retry</button>
         <button class="ghost" onclick="tmClose()">Close</button>

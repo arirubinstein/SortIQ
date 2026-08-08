@@ -48,6 +48,11 @@ class EmbedClassifier:
         vec = g["g_vec"].astype(np.float32)
         self.g_vec = vec / np.linalg.norm(vec, axis=1, keepdims=True)
         self.g_cls = [str(c) for c in g["g_cls"]]
+        # exemplar crop paths: lets predict() exclude a query's own
+        # gallery seat (leave-one-out) so an image can never vouch for
+        # itself during dataset scans
+        self.g_path = ([str(p) for p in g["g_path"]]
+                       if "g_path" in g else None)
         # full class bank (every crop's vector) — used by the novelty
         # gate for dedupe; matching stays exemplar-only. Absent in
         # older galleries.
@@ -109,12 +114,22 @@ class EmbedClassifier:
         v = self.interp.get_tensor(self.out["index"])[0].astype(np.float32)
         return v / (np.linalg.norm(v) or 1.0)
 
-    def predict(self, img_bgr):
+    def predict(self, img_bgr, exclude_path=None):
         """-> dict(stamp, sim, margin, accept). stamp is the nearest
         gallery class regardless of accept, so disagreement analysis can
-        see what a reject WOULD have been called."""
+        see what a reject WOULD have been called.
+
+        exclude_path (a "CLASS/crop_name.png" gallery path) masks that
+        exemplar out of the vote — leave-one-out for dataset scans. The
+        k-center picker loves outliers, and a mislabeled image is its
+        class's biggest outlier, so mislabels tend to BE exemplars and
+        would otherwise self-match at ~1.0 and hide from the scan."""
         q = self.embed(img_bgr)
         sims = self.g_vec @ q
+        if exclude_path is not None and self.g_path is not None:
+            for k, pth in enumerate(self.g_path):
+                if pth == exclude_path:
+                    sims[k] = -1.0
         per_cls = np.array([sims[m].max() for m in self._masks])
         order = np.argsort(per_cls)
         best, second = order[-1], order[-2] if len(order) > 1 else order[-1]

@@ -202,7 +202,10 @@ sorting from 3 photos with no retraining at all.
   photos and pins. Run it after a relabeling session, after emptying the
   tray, or after big captures; it takes a few minutes.
 - **Scan for mislabels** — the decider second-guesses every stored
-  image, exactly the way live sorting reads a case. Anything that reads
+  image, exactly the way live sorting reads a case — with one twist:
+  each image's own gallery seat is masked while it's judged, so a
+  mislabel that happens to be serving as an exemplar can't vouch for
+  itself and hide. Anything that reads
   as a *different* class gets listed, sorted by confidence: the red
   high-confidence flags (70%+) are almost always saves that landed in
   the wrong folder mid-session — **View** jumps straight to the image so
