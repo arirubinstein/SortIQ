@@ -175,10 +175,10 @@ sorting from 3 photos with no retraining at all.
   model's eye: it can tell headstamps apart even on brass it has never
   seen, so a new caliber can collect photos, rebuild its gallery, and
   start sorting immediately — train its own recognizer later for full
-  accuracy. **Merge model…** copies another model's images into the
+  accuracy. **Merge dataset…** copies another model's images into the
   active one, class by class (new classes are created, the source is
-  left untouched) — the tool for consolidating an experiment back into
-  a main model.
+  left untouched; trained models are never merged) — the tool for
+  consolidating an experiment's labels back into a main model.
 - **Per class:** **View** opens the gallery (inspect, move mislabeled
   images between classes, bulk-delete), **Rename** renames — or **merges**
   if you rename onto an existing class — and **Delete** wipes the class.

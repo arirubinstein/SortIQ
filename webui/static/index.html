@@ -401,13 +401,14 @@
 <div id="mergeModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55);
      z-index:50; align-items:center; justify-content:center">
   <div class="card" style="width:min(500px, 92vw)">
-    <h2 style="margin-top:0">Merge a model into <span id="mmTarget"></span></h2>
+    <h2 style="margin-top:0">Merge a dataset into <span id="mmTarget"></span></h2>
     <label>Copy images from</label>
     <select id="mmSource"></select>
     <div class="muted" style="margin-top:8px; font-size:12.5px">
-      Every class in the source is copied into the active model —
-      images are renumbered after the existing ones, classes the active
-      model doesn't have are created, and the source model is left
+      This merges <b>images and classes only</b> — trained models are
+      never merged; each profile keeps its own. Every class in the source
+      is copied into the active model, images renumbered after the
+      existing ones, missing classes created, and the source left
       untouched (delete it separately once you've verified the result).
       Crops rebuild automatically; expect a few minutes on a large
       source. Rebuild the gallery afterwards.
@@ -929,7 +930,7 @@
       </div>
       <button class="primary" id="btnNewModel2">＋ New model</button>
       <button class="ghost" id="btnMergeModel"
-        title="copy another model's images into this one, class by class">Merge model…</button>
+        title="copy another model's images into this one, class by class">Merge dataset…</button>
       <button class="ghost danger" id="btnDeleteModel">Delete model</button>
     </div>
     <div class="msg" id="selMsg"></div>
