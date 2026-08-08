@@ -1059,7 +1059,7 @@
        background:rgba(10,12,16,.72); align-items:center; justify-content:center"
        onclick="if(event.target===this) dsCloseDetail()">
     <div style="background:var(--panel); border:1px solid var(--line);
-         border-radius:10px; width:min(780px, 94vw); max-height:92vh;
+         border-radius:10px; width:min(660px, 92vw); max-height:92vh;
          overflow-y:auto; padding:18px 22px; box-shadow:0 12px 40px rgba(0,0,0,.5)">
       <div style="display:flex; justify-content:space-between; align-items:baseline">
         <h2 style="margin:0 0 10px">Selected image</h2>
@@ -2377,9 +2377,9 @@ async function dsDetail(label, index) {
           onclick="dsDetail('${esc}', ${next})">next ›</button>
       </div>
       <div class="muted" style="margin-top:6px">Raw photo <span style="font-size:11px">(←/→ keys navigate)</span></div>
-      ${j.a ? `<img class="thumb" src="${j.a}">` : `<div class="muted">missing</div>`}
+      ${j.a ? `<img class="thumb" src="${j.a}" style="max-height:46vh; width:auto; max-width:100%">` : `<div class="muted">missing</div>`}
       <div class="muted" style="margin-top:8px">→ what the model trains on</div>
-      ${j.head_crop ? `<img class="thumb" src="${j.head_crop}" style="max-width:280px">` : `<div class="muted">—</div>`}
+      ${j.head_crop ? `<img class="thumb" src="${j.head_crop}" style="max-width:220px; max-height:24vh">` : `<div class="muted">—</div>`}
       <div class="ctlRow" style="margin-top:12px; flex-wrap:wrap">
         <label style="margin:0">Move to</label>
         <select id="dsMoveTo" style="max-width:200px">${opts}</select>
