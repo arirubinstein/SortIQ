@@ -2367,15 +2367,7 @@ async function dsDetail(label, index) {
     const opts = moveTargets(label).map(t => `<option>${t}</option>`).join("");
     $("dsImgModal").style.display = "flex";
     $("dsDetail").innerHTML = `
-      <div style="display:flex; gap:10px; align-items:baseline; flex-wrap:wrap">
-        <h3 style="margin:0">${label} #${index}${j.a_sharpness ? ` <span class="muted">· sharpness ${j.a_sharpness}</span>` : ""}</h3>
-        <span style="flex:1"></span>
-        <button class="ghost" id="dsPrevBtn" ${prev === null ? "disabled" : ""}
-          onclick="dsDetail('${esc}', ${prev})">‹ prev</button>
-        <span class="muted" style="font-size:12px">${pos + 1} of ${dsNav.indices.length}</span>
-        <button class="ghost" id="dsNextBtn" ${next === null ? "disabled" : ""}
-          onclick="dsDetail('${esc}', ${next})">next ›</button>
-      </div>
+      <h3 style="margin:0">${label} #${index}${j.a_sharpness ? ` <span class="muted">· sharpness ${j.a_sharpness}</span>` : ""}</h3>
       <div class="muted" style="margin-top:6px">Raw photo <span style="font-size:11px">(←/→ keys navigate)</span></div>
       ${j.a ? `<img class="thumb" src="${j.a}" style="max-height:46vh; width:auto; max-width:100%">` : `<div class="muted">missing</div>`}
       <div class="muted" style="margin-top:8px">→ what the model trains on</div>
@@ -2385,6 +2377,12 @@ async function dsDetail(label, index) {
         <select id="dsMoveTo" style="max-width:200px">${opts}</select>
         <button class="ghost" onclick="dsMove('${esc}', ${index})">Move</button>
         <button class="ghost danger" onclick="dsDelNav('${esc}', ${index})">Delete</button>
+        <span style="flex:1"></span>
+        <button class="ghost" id="dsPrevBtn" ${prev === null ? "disabled" : ""}
+          onclick="dsDetail('${esc}', ${prev})">‹ prev</button>
+        <span class="muted" style="font-size:12px">${pos + 1} of ${dsNav.indices.length}</span>
+        <button class="ghost" id="dsNextBtn" ${next === null ? "disabled" : ""}
+          onclick="dsDetail('${esc}', ${next})">next ›</button>
       </div>`;
   } catch (e) { msg("dsMsg", e.message, false); }
 }
