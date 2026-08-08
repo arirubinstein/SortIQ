@@ -25,7 +25,9 @@ if not exist ".venv\Scripts\pythonw.exe" (
     exit /b 1
 )
 
-schtasks /create /tn "%TASK%" /sc minute /mo 2 /f /tr "powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%CD%\tools\trainer_watchdog.ps1\"" >nul
+rem the vbs wrapper exists because Task Scheduler flashes a console for
+rem any console program it launches - wscript.exe has none to flash
+schtasks /create /tn "%TASK%" /sc minute /mo 2 /f /tr "wscript.exe \"%CD%\tools\trainer_watchdog.vbs\"" >nul
 if errorlevel 1 (
     echo Could not create the scheduled task.
     pause
