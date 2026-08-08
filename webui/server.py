@@ -3264,7 +3264,9 @@ def _train_cpu():
     job.mkdir(parents=True, exist_ok=True)
     log_path = job / "run.log"
     log_path.write_bytes(b"")
-    flags = 0x00004000 if os.name == "nt" else 0   # BELOW_NORMAL_PRIORITY
+    # BELOW_NORMAL_PRIORITY | CREATE_NO_WINDOW — low priority so the PC
+    # stays usable, windowless so no console pops over the desktop
+    flags = (0x00004000 | 0x08000000) if os.name == "nt" else 0
     for stage, cmd in (("teacher", _teacher_cmd(sys.executable)),
                        ("distill", _distill_cmd(sys.executable))):
         train_status.update(stage=stage, epoch=0,

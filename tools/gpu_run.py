@@ -27,10 +27,16 @@ Job files live under calibers-adjacent gpu_jobs/ (gitignored territory
 is fine — these are run artifacts, not code).
 """
 import json
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+# The trainer server runs windowless (pythonw), so every wsl.exe child
+# would otherwise conjure a console window in front of everything the
+# moment the GPU probe runs. CREATE_NO_WINDOW keeps them invisible.
+NOWIN = 0x08000000 if os.name == "nt" else 0
 
 ROOT = Path(__file__).resolve().parents[1]
 JOBS = ROOT / "gpu_jobs"
@@ -42,7 +48,8 @@ def _wsl(args, timeout=30):
     """Run a quick WSL command; (rc, output). Never raises."""
     try:
         r = subprocess.run(["wsl", "-d", DIST, "-u", "root", "--"] + args,
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, timeout=timeout,
+                           creationflags=NOWIN)
         return r.returncode, (r.stdout or "") + (r.stderr or "")
     except subprocess.TimeoutExpired:
         return -1, "timeout"
@@ -66,7 +73,7 @@ def preflight(recover=True):
     if rc != 0:
         if recover:
             subprocess.run(["wsl", "--shutdown"], capture_output=True,
-                           timeout=60)
+                           timeout=60, creationflags=NOWIN)
             time.sleep(8)
             return preflight(recover=False)
         return False, checks + ["FAIL vm: unresponsive after recovery"]
