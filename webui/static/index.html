@@ -5266,9 +5266,9 @@ $("btnMsRead").onclick = async () => {
 (async () => {
   try {
     const j = await api("/api/code/manifest?digest=1");
-    $("sysVer").textContent = `code version ${j.digest.slice(0, 12)}` +
+    $("sysVer").textContent = `SortIQ v${j.version || "?"} — build ${j.digest.slice(0, 8)}` +
       (j.is_git ? " (git checkout — updates via git)" : "") +
-      " — machine and trainers must run the same version to train";
+      " — machine and trainers must run the same build to train";
   } catch {}
 })();
 $("sysHeader").onclick = () => { $("sysModal").style.display = "flex"; };

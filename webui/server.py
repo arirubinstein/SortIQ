@@ -2560,7 +2560,11 @@ def api_code_manifest():
     """This install's code inventory. ?digest=1 returns just the rolled-up
     digest — the "version" the UIs compare — without the file list."""
     if request.args.get("digest"):
-        return jsonify({"digest": codesync.digest(ROOT),
+        try:
+            ver = (ROOT / "VERSION").read_text().strip()
+        except OSError:
+            ver = "dev"
+        return jsonify({"digest": codesync.digest(ROOT), "version": ver,
                         "is_git": codesync.is_git_checkout(ROOT)})
     man = codesync.manifest(ROOT)
     man["is_git"] = codesync.is_git_checkout(ROOT)
