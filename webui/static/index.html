@@ -531,6 +531,7 @@
   <button data-tab="test">4 · Test</button>
   <button data-tab="run">5 · Sort</button>
   <button data-tab="machine">Machine</button>
+  <button data-tab="fleet">Fleet</button>
   <button data-tab="docs">Docs</button>
 </nav>
 <main>
@@ -898,6 +899,27 @@
       </div>
       <div id="modelArchive" class="muted">none yet</div>
     </div>
+  </div>
+</section>
+
+<!-- =============================== FLEET ================================ -->
+<section id="fleet">
+  <div class="card">
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:6px">
+      <h2 style="margin:0">Fleet</h2>
+      <span style="flex:1"></span>
+      <button class="ghost" id="btnFleetScan">Scan for machines</button>
+    </div>
+    <div class="muted" style="margin-bottom:10px">
+      Every SortIQ machine this one knows about, polled live while this
+      tab is open. Click a name to open that machine's own page; a
+      grayed card means it didn't answer. "Update from here" brings a
+      machine running an older build up to this one's code.
+    </div>
+    <div id="fleetCards" style="display:grid; gap:12px;
+         grid-template-columns:repeat(auto-fill, minmax(300px, 1fr))"></div>
+    <div id="fleetPeers" class="muted" style="margin-top:10px; font-size:12px"></div>
+    <div class="msg" id="fleetMsg"></div>
   </div>
 </section>
 
@@ -1460,6 +1482,7 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   if (location.hash !== "#" + b.dataset.tab)
     history.replaceState(null, "", "#" + b.dataset.tab);   // deep-linkable tabs
   if (b.dataset.tab === "docs") loadDocs();
+  if (b.dataset.tab === "fleet") fleetLoad();
   if (b.dataset.tab === "collect") pollMachine();  // machine chip + button labels
   if (b.dataset.tab === "dataset") refresh();   // pick up freshly collected counts
   if (b.dataset.tab === "run") { refresh(); updateRunChip(); }  // bin map + machine chip
@@ -5281,6 +5304,99 @@ $("btnMsRead").onclick = async () => {
   } catch {}
 })();
 $("sysHeader").onclick = () => { $("sysModal").style.display = "flex"; };
+
+/* ------------------------- fleet tab -------------------------------- */
+// polling exists only while the tab is open — no background timers on
+// the machine, per the one-heavy-thing doctrine
+let fleetTimer = null;
+
+async function fleetLoad() {
+  clearTimeout(fleetTimer);
+  if (!$("fleet").classList.contains("active")) return;
+  try {
+    const j = await api("/api/fleet");
+    fleetRender(j.cards || []);
+  } catch (e) { msg("fleetMsg", e.message, false); }
+  fleetTimer = setTimeout(fleetLoad, 10000);
+}
+
+function fleetRender(cards) {
+  $("fleetCards").innerHTML = cards.map(c => {
+    if (!c.reachable) return `
+      <div class="card" style="opacity:.45">
+        <b>${c.url}</b>
+        <div class="muted" style="margin-top:6px">unreachable
+          <a style="cursor:pointer; margin-left:8px; opacity:.8"
+             onclick="fleetForget('${c.url}')">forget</a></div>
+      </div>`;
+    const dot = ok => `<span style="color:${ok ? "var(--green)" : "var(--red)"}">●</span>`;
+    const run = c.run && c.run.running
+      ? `<div style="color:var(--green); margin-top:4px">${
+          c.run.capture ? "capturing" : "sorting"} — ${c.run.cases} cases</div>`
+      : `<div class="muted" style="margin-top:4px">idle</div>`;
+    const name = c.me
+      ? `<b>${c.name}</b> <span class="muted">(this machine)</span>`
+      : `<a href="${c.url}" target="_blank" style="font-weight:700">${c.name}</a>`;
+    const build = c.same_build
+      ? `<span class="muted">v${c.version} · ${(c.digest || "").slice(0, 8)}</span>`
+      : `<span style="color:var(--amber)">v${c.version} · ${(c.digest || "").slice(0, 8)}
+           — different build</span>
+         <button class="ghost" style="padding:2px 10px"
+           onclick="fleetUpdate('${c.url}')">Update from here</button>`;
+    return `
+      <div class="card" style="margin:0">
+        <div style="display:flex; gap:8px; align-items:baseline; flex-wrap:wrap">
+          ${name}<span style="flex:1"></span>
+          <span class="muted" style="font-size:12px">${c.host || ""}</span>
+        </div>
+        <div class="muted" style="margin-top:4px">${c.model} · ${c.classes} classes${
+          c.can_train ? " · trainer" : ""}</div>
+        <div style="margin-top:6px; font-size:13px">
+          ${dot(c.camera === "ok")} camera&nbsp;&nbsp;${dot(c.board)} board</div>
+        ${run}
+        <div style="margin-top:8px; font-size:12px">${build}</div>
+      </div>`;
+  }).join("") || `<div class="muted">no machines known yet — scan the network</div>`;
+  const peers = cards.filter(c => !c.me).map(c => c.url);
+  $("fleetPeers").textContent = peers.length
+    ? `known machines: ${peers.join("  ·  ")}` : "";
+}
+
+async function fleetForget(url) {
+  try {
+    const cur = await api("/api/fleet/peers");
+    const peers = (cur.peers || []).filter(u => u !== url);
+    await postJson("/api/fleet/peers", { peers });
+    fleetLoad();
+  } catch (e) { msg("fleetMsg", e.message, false); }
+}
+
+async function fleetUpdate(url) {
+  if (!confirm(`Update ${url} to this machine's build? It restarts when done.`))
+    return;
+  msg("fleetMsg", "updating peer — it restarts when done…", true);
+  try {
+    const j = await postJson("/api/fleet/update", { peer: url });
+    msg("fleetMsg", `peer updated ${j.updated ?? "?"} file(s)` +
+        (j.restarting ? " — restarting" : ""), true);
+    setTimeout(fleetLoad, 8000);
+  } catch (e) { msg("fleetMsg", e.message, false); }
+}
+
+$("btnFleetScan").onclick = async () => {
+  msg("fleetMsg", "scanning the /24…", true);
+  try {
+    const s = await postJson("/api/machines/scan", {});
+    const found = (s.found || []).filter(m => !m.self)
+      .map(m => `http://${m.ip}:5000`);
+    const cur = await api("/api/fleet/peers");
+    const peers = [...new Set([...(cur.peers || []), ...found])];
+    await postJson("/api/fleet/peers", { peers });
+    msg("fleetMsg", found.length
+      ? `found ${found.length} machine(s)` : "no other machines answered", true);
+    fleetLoad();
+  } catch (e) { msg("fleetMsg", e.message, false); }
+};
 
 /* ---------------- Pi network (header chip + dialog) ------------------ */
 function setNetHeader(text, title, alert) {

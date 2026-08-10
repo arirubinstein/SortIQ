@@ -3536,6 +3536,116 @@ def api_machines_scan():
     return jsonify({"subnet": f"{base}.0/24", "me": me, "found": found})
 
 
+# ------------------------------------------------------------- fleet ---
+# Every instance can show the whole fleet: the page you're browsing
+# polls its peers SERVER-side (no browser cross-origin games), so the
+# view works from any device against any machine — trainer optional.
+# The status card is deliberately skeletal (no image work, no directory
+# walks) so answering costs nothing mid-run.
+
+def _own_lan_url():
+    import socket as _s
+    s = _s.socket(_s.AF_INET, _s.SOCK_DGRAM)
+    try:                       # routing trick: no packet is actually sent
+        s.connect(("8.8.8.8", 80))
+        return f"http://{s.getsockname()[0]}:5000"
+    finally:
+        s.close()
+
+
+def _fleet_self_status():
+    cfg = load_cfg()
+    ident = _identity()
+    rs = run_mgr.status()
+    bc = rs.get("bin_counts") or {}
+    try:
+        ver = (ROOT / "VERSION").read_text().strip()
+    except OSError:
+        ver = "dev"
+    return {"name": ident["name"], "host": ident["host"],
+            "model": f"{cfg.cartridge}/{cfg.model_name}",
+            "classes": len(cfg.stamp_labels),
+            "camera": ("ok" if _camera["cap"] is not None
+                       else _camera["error"] or "idle"),
+            "board": _console["transport"] is not None,
+            "run": {"running": bool(rs.get("running")),
+                    "capture": bool(rs.get("capture")),
+                    "cases": sum(bc.values()) if bc else 0},
+            "version": ver, "digest": codesync.digest(ROOT),
+            "can_train": _tf_available()}
+
+
+@app.get("/api/fleet/status")
+def api_fleet_status():
+    return jsonify(_fleet_self_status())
+
+
+@app.get("/api/fleet/peers")
+def api_fleet_peers_get():
+    raw = json.loads(CONFIG_PATH.read_text())
+    return jsonify({"peers": raw.get("fleet_peers", [])})
+
+
+@app.post("/api/fleet/peers")
+def api_fleet_peers_set():
+    body = request.get_json() or {}
+    peers = [str(u).rstrip("/") for u in (body.get("peers") or [])
+             if str(u).startswith("http")][:32]
+    with _config_lock:
+        raw = json.loads(CONFIG_PATH.read_text())
+        raw["fleet_peers"] = sorted(set(peers))
+        write_cfg_raw(raw)
+    return jsonify({"ok": True, "peers": raw["fleet_peers"]})
+
+
+@app.get("/api/fleet")
+def api_fleet():
+    """Everyone's status card, self first. Peers answer with a short
+    timeout; the unreachable stay on the list, grayed — which doubles
+    as the is-that-machine-frozen telltale."""
+    import urllib.request
+    from concurrent.futures import ThreadPoolExecutor
+    me = _fleet_self_status()
+    me.update(url=None, reachable=True, same_build=True, me=True)
+    peers = json.loads(CONFIG_PATH.read_text()).get("fleet_peers", [])
+
+    def fetch(url):
+        try:
+            with urllib.request.urlopen(url + "/api/fleet/status",
+                                        timeout=2.5) as r:
+                j = json.loads(r.read())
+            j.update(url=url, reachable=True, me=False,
+                     same_build=j.get("digest") == me["digest"])
+            return j
+        except Exception:
+            return {"url": url, "reachable": False, "me": False}
+    cards = [me]
+    if peers:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            cards += list(ex.map(fetch, peers))
+    return jsonify({"cards": cards})
+
+
+@app.post("/api/fleet/update")
+def api_fleet_update():
+    """Tell a drifted peer to pull code from THIS instance — the
+    direction /api/code/update already speaks, driven server-side so
+    any browser can press the button."""
+    import urllib.request
+    peer = ((request.get_json() or {}).get("peer") or "").rstrip("/")
+    if not peer.startswith("http"):
+        return jsonify({"error": "peer url required"}), 400
+    try:
+        req = urllib.request.Request(
+            peer + "/api/code/update",
+            data=json.dumps({"machine_url": _own_lan_url()}).encode(),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=300) as r:
+            return jsonify(json.loads(r.read()))
+    except Exception as e:
+        return jsonify({"error": f"peer didn't take the update: {e}"}), 502
+
+
 def _multipart(files):
     """Encode {name: bytes} as multipart/form-data (stdlib-only client)."""
     import uuid

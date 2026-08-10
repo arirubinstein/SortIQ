@@ -312,6 +312,15 @@ mislabeled images get caught.
 
 ## Running more than one machine
 
+The **Fleet** tab (on every machine and trainer) is the collective
+view: one card per known machine — name, active model, camera/board
+health, a live line while it captures or sorts, and its build. Click a
+name to open that machine's own page; **Scan for machines** finds
+peers, and **Update from here** brings a machine on an older build up
+to the one you're browsing. The page you're on does the polling, so
+the view works from any phone or PC with no trainer involved, and only
+while the tab is open.
+
 Each machine is self-contained — its own address, name, dataset, and
 model — and one trainer PC serves them all. Four rules keep a fleet sane:
 
