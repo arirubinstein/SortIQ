@@ -3796,7 +3796,9 @@ async function tmDevicePick() {
       ? `<span style="color:var(--green)">ready ✓ ${(((g.checks || []).find(l => l.startsWith("ok   gpu")) || "").replace("ok   gpu", "").split(",")[0]).trim()}</span>`
       : (g.state === "probing" || g.state === "unknown")
         ? `<span class="muted">checking the GPU sandbox…</span>`
-        : `<span style="color:var(--red)">unavailable — ${((g.checks || []).find(l => l.startsWith("FAIL")) || "probe failed").slice(0, 70)}</span>`;
+        : `<span style="color:var(--red)">unavailable — ${((g.checks || []).find(l => l.startsWith("FAIL")) || "probe failed").slice(0, 70)}</span>
+           <button class="ghost" style="padding:2px 10px"
+             onclick="tmReprobe()">Re-check</button>`;
   const opt = (val, ok, label, sub) => `
     <label style="display:flex; gap:8px; align-items:baseline; margin-top:6px;
                   cursor:${ok ? "pointer" : "default"}; opacity:${ok ? 1 : 0.55}">
@@ -3824,6 +3826,13 @@ async function tmDevicePick() {
     </div>`);
   if (g.supported && (g.state === "probing" || g.state === "unknown"))
     tmTimer = setTimeout(tmDevicePick, 4000);
+}
+
+async function tmReprobe() {
+  // a cold WSL boot can fail the startup probe and the verdict sticks;
+  // one click re-runs it (the server refuses while a job is training)
+  try { await tmFetch("/api/gpu/probe", {}); } catch (e) {}
+  tmDevicePick();
 }
 
 async function tmStartTrain(device) {

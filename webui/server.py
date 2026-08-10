@@ -3029,7 +3029,16 @@ def api_code_update():
         codesync.write_file(ROOT, rel, got[rel])
     for rel in delete:
         codesync.delete_file(ROOT, rel)
-    if codesync.digest(ROOT) != remote["digest"]:
+    # the pull may have replaced codesync itself (new manifest rules);
+    # verify with the freshly written module, not the copy this process
+    # imported at startup — otherwise a rules change can never pass its
+    # own verification and the update wedges one restart short
+    try:
+        import importlib
+        verifier = importlib.reload(codesync)
+    except Exception:
+        verifier = codesync
+    if verifier.digest(ROOT) != remote["digest"]:
         return jsonify({"error": "install doesn't match the machine after "
                                  "the pull (files changed mid-update?) — "
                                  "retry"}), 500
@@ -3112,12 +3121,30 @@ def _gpu_run():
     return mod
 
 
+def _gpu_job_live():
+    """A GPU job with a running.marker and no exit.marker is (or may
+    be) alive inside the WSL VM — e.g. after a trainer crash + watchdog
+    revival, the detached job survives this process."""
+    jobs = ROOT / "gpu_jobs"
+    if not jobs.is_dir():
+        return False
+    return any((d / "running.marker").exists()
+               and not (d / "exit.marker").exists()
+               for d in jobs.iterdir() if d.is_dir())
+
+
 def _gpu_probe():
     """Full gpu_run preflight (boots the WSL VM, imports TF under the
-    job env). Takes up to ~2 minutes cold — always called on a thread."""
+    job env). Takes up to ~2 minutes cold — always called on a thread.
+
+    The preflight's recovery step is `wsl --shutdown`, which would
+    execute any job living in the VM — so recovery is only permitted
+    when nothing is (or might be) running: a probe against a busy VM
+    that times out must report failure, never amputate."""
     gpu_status["state"] = "probing"
+    safe_to_recover = not train_status["running"] and not _gpu_job_live()
     try:
-        good, checks = _gpu_run().preflight()
+        good, checks = _gpu_run().preflight(recover=safe_to_recover)
         gpu_status.update(state="ready" if good else "failed",
                           checks=checks)
     except Exception as e:
@@ -3152,6 +3179,10 @@ def api_gpu():
 def api_gpu_probe():
     if not gpu_status["supported"]:
         return jsonify({"error": "no WSL GPU sandbox on this host"}), 400
+    if train_status["running"]:
+        return jsonify({"error": "training is running — probing now "
+                                 "could disturb the job; re-check after "
+                                 "it finishes"}), 409
     if gpu_status["state"] != "probing":
         threading.Thread(target=_gpu_probe, daemon=True).start()
     return jsonify({"ok": True, "state": "probing"})
