@@ -682,7 +682,7 @@ def api_model_merge():
         if new_classes:
             write_active_model(raw_cfg)
     load_cfg()
-    n_crops, _ = rebuild_crops(DATA_DIR)
+    n_crops, _ = rebuild_crops(DATA_DIR, incremental=True)
     return jsonify({"ok": True, "from": f"{cart}/{src}",
                     "pairs_copied": sum(copied.values()),
                     "per_class": copied, "new_classes": new_classes,
@@ -792,7 +792,7 @@ def api_stamps_remove():
             deleted = delete_label(DATA_DIR, name)
         except ValueError:
             pass
-        rebuild_crops(DATA_DIR)
+        rebuild_crops(DATA_DIR, incremental=True)
     return jsonify({"ok": True, "removed": name, "images_deleted": deleted})
 
 
@@ -2494,7 +2494,9 @@ def api_dataset_rebuild():
     changed outside the app (rsync from another machine, sync-tool lock
     leftovers). Idempotent: raw is the source of truth. Synchronous; the
     UI shows a busy state (~20-30s for a 1,400-image dataset on the Pi)."""
-    n_stamp, _ = rebuild_crops(DATA_DIR)
+    n_stamp, _ = rebuild_crops(
+        DATA_DIR, incremental=not (request.get_json(silent=True)
+                                   or {}).get("force"))
     return jsonify({"ok": True, "crops": {"stamp": n_stamp}})
 
 
@@ -3799,7 +3801,10 @@ def api_train_remote():
             set_active_model(cart, model)
             img_cfg = man["model_json"].get("imaging") or {}
             imaging.configure(img_cfg)
-            n_crops, _ = rebuild_crops(data_dir)
+            # incremental: only the pull delta gets decoded — the crop
+            # signature (imaging settings + code) still forces a full
+            # reshape when the machine's imaging changed since last pull
+            n_crops, _ = rebuild_crops(data_dir, incremental=True)
 
             train_status["result"] = {
                 "pull_only": True, "files": len(want),
