@@ -13,6 +13,7 @@ Writes shadow_gallery.npz beside the model. Install both to the machine
 with the Train page's shadow controls (or POST /api/shadow/push).
 """
 import argparse
+import hashlib
 import json
 import random
 import time
@@ -54,7 +55,37 @@ def main():
     out = interp.get_output_details()[0]
     h, w = inp["shape"][1], inp["shape"][2]
 
-    def embed(path):
+    # the previous gallery already banks a vector for EVERY crop (the
+    # novelty gate needs them), and the embedder is deterministic — so an
+    # unchanged file's old vector IS its new vector. Reuse them and only
+    # embed what's new: moving one image no longer costs a full
+    # re-embed of the dataset. A different model digest (retrain) or a
+    # changed file signature (crop regeneration) invalidates naturally.
+    model_digest = hashlib.md5(Path(args.model).read_bytes()).hexdigest()
+    out_path = Path(args.model).with_name("shadow_gallery.npz")
+    cache = {}
+    if out_path.is_file():
+        try:
+            old = np.load(out_path, allow_pickle=False)
+            om = json.loads(str(old["meta"]))
+            if om.get("model_digest") == model_digest and "g_all_sig" in old:
+                cache = {p: (v, s) for p, v, s in
+                         zip(old["g_all_path"], old["g_all_vec"],
+                             old["g_all_sig"])}
+        except Exception as e:
+            print(f"cache from previous gallery unusable ({e}) — full build")
+    n_new = n_cached = 0
+
+    def sig(path):
+        st = path.stat()
+        return f"{st.st_size}:{int(st.st_mtime)}"
+
+    def embed(path, rel):
+        nonlocal n_new, n_cached
+        hit = cache.get(rel)
+        if hit is not None and hit[1] == sig(path):
+            n_cached += 1
+            return hit[0]
         img = cv2.imread(str(path))
         if img is None:
             return None                  # corrupt/empty file: caller skips
@@ -63,6 +94,7 @@ def main():
         interp.set_tensor(inp["index"], x[None, ...])
         interp.invoke()
         v = interp.get_tensor(out["index"])[0].astype(np.float32)
+        n_new += 1
         return v / (np.linalg.norm(v) or 1.0)
 
     # user pins from the profile: {class: [crop filenames]} — a pinned
@@ -78,6 +110,7 @@ def main():
     vecs, cls, paths = [], [], []
     all_vecs, all_cls = [], []      # every crop's vector, for the dedupe gate
     all_paths = []                  # crop paths so the gate can pixel-verify
+    all_sigs = []                   # size:mtime per crop — the reuse key
     skipped = []
     n_pinned = 0
     for d in sorted(crops.iterdir()):
@@ -95,7 +128,7 @@ def main():
         # was built from the exemplar pool, which silently dropped the
         # ~30-image holdout — a re-run WIN case slid past the gate
         # because its original hid there).
-        embedded = {f.name: embed(f) for f in files}
+        embedded = {f.name: embed(f, f"{d.name}/{f.name}") for f in files}
         bad = [n for n, v in embedded.items() if v is None]
         if bad:
             print(f"  {d.name}: skipped {len(bad)} unreadable "
@@ -107,6 +140,7 @@ def main():
         all_vecs.append(np.stack([embedded[f.name] for f in files]))
         all_cls += [d.name] * len(files)
         all_paths += [f"{d.name}/{f.name}" for f in files]
+        all_sigs += [sig(f) for f in files]
         # mirror the benches' split: the first 20% (capped) were query
         # material there; exemplars come from the remainder so gallery
         # vectors were never used to grade the model. Pinned files are
@@ -150,17 +184,19 @@ def main():
     if skipped:
         print("skipped (too few images):", ", ".join(skipped))
 
+    print(f"vectors: {n_cached} reused from the previous gallery, "
+          f"{n_new} freshly embedded")
     meta = {"tau": args.tau, "margin_floor": args.margin_floor,
             "exemplars": args.exemplars, "pinned": n_pinned,
-            "model": Path(args.model).name,
+            "model": Path(args.model).name, "model_digest": model_digest,
             "built_at": time.strftime("%Y-%m-%d %H:%M"),
             "classes": len(set(cls)), "vectors": len(vecs)}
-    out_path = Path(args.model).with_name("shadow_gallery.npz")
     np.savez_compressed(out_path, g_vec=np.stack(vecs),
                         g_cls=np.array(cls), g_path=np.array(paths),
                         g_all_vec=np.concatenate(all_vecs).astype(np.float32),
                         g_all_cls=np.array(all_cls),
                         g_all_path=np.array(all_paths),
+                        g_all_sig=np.array(all_sigs),
                         meta=json.dumps(meta))
     print(f"written: {out_path}  ({meta['classes']} classes, "
           f"{meta['vectors']} vectors, tau={args.tau})")
