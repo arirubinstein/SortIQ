@@ -1488,6 +1488,11 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   if (b.dataset.tab === "run") { refresh(); updateRunChip(); }  // bin map + machine chip
   if (b.dataset.tab === "machine") loadMachineSettings();
   if (b.dataset.tab === "train") loadTrainMachine();  // re-check machine + USB stick
+  // a panel that missed refreshes while hidden catches up on entry
+  if (STATE && _dirtyTabs.has(b.dataset.tab)) {
+    _dirtyTabs.delete(b.dataset.tab);
+    _TAB_RENDER[b.dataset.tab]();
+  }
   syncTestStream();
   syncCollectStream();
 });
@@ -1549,7 +1554,7 @@ async function refresh() {
   $("whoAmI").textContent = who + (id.trainer ? " · trainer" : "");
   document.title = `SortIQ — ${who}`;
   renderModelBar(); renderModelSelect();
-  renderCollect(); renderTrainInfo(); renderBins();
+  renderVisibleTabs();
   if (!$("test").querySelector("#discWrap svg")) drawDisc($("discWrap"), null);
   const camOk = STATE.camera === "ok";
   $("camBox").style.display = camOk ? "" : "none";
@@ -1708,6 +1713,26 @@ const colRecent = [];     // this session's saves: {stamp, index, thumb}
 let recentFixIdx = null;
 let MACH = { connected: false, mode: null };
 
+// refresh() fires after every save/move/delete — rebuilding every
+// panel's DOM each time made the hot collect loop stutter. Only the
+// visible panel renders; hidden ones mark dirty and catch up when
+// their tab is opened.
+const _dirtyTabs = new Set();
+const _TAB_RENDER = {
+  collect: () => renderCollect(),
+  dataset: () => renderDatasetMgr(),
+  train: () => renderTrainInfo(),
+  test: () => renderBins(),
+};
+function renderVisibleTabs() {
+  for (const tab of Object.keys(_TAB_RENDER)) {
+    if ($(tab).classList.contains("active")) {
+      _TAB_RENDER[tab]();
+      _dirtyTabs.delete(tab);
+    } else _dirtyTabs.add(tab);
+  }
+}
+
 function renderCollect() {
   if (colSel && !chipItems().some(i => i.n === colSel)) colSel = null;
   renderChips();
@@ -1723,7 +1748,6 @@ function renderCollect() {
   }
   updateCropLabels();
   updateColButtons();
-  renderDatasetMgr();
 }
 
 /* class-list tint: the thresholds are the machine's own behavior lines —
@@ -1774,6 +1798,17 @@ function renderFamilies() {
         <button class="ghost danger" onclick="famDelete('${n.replace(/'/g, "\\'")}')">Delete</button>
       </div>`).join("")
     : `<div class="muted">no families yet — name one below and pick its members</div>`;
+  // mid-edit ticks survive background refreshes: a save elsewhere used
+  // to reset every checkbox to the stored family
+  if ($("famEditor").style.display !== "none") {
+    const live = new Set([...document.querySelectorAll(".famChk")]
+                         .filter(c => c.checked).map(c => c.value));
+    if (live.size) {
+      document.querySelectorAll(".famChk").forEach(c =>
+        c.checked = live.has(c.value));
+      return;
+    }
+  }
   const checked = new Set(fams[$("famName").value.trim().toUpperCase()] || []);
   $("famMembers").innerHTML = [...STATE.stamp_labels].sort()
     .map(s => `<label style="display:flex; gap:6px; align-items:center;
@@ -1874,6 +1909,11 @@ function renderScan(s) {
       (s.flagged.length
         ? `${s.flagged.length} image${s.flagged.length === 1 ? "" : "s"} read as a different class (sorted by confidence; high ones are usually mislabels)`
         : "every image reads as its own class ✓");
+  // rebuilding the list only when its CONTENT moved keeps the scroll
+  // (and the row indices under the user's cursor) still between polls
+  const listKey = s.flagged.map(scanKey).join();
+  if (listKey === renderScan._key) return;
+  renderScan._key = listKey;
   $("scanResults").innerHTML = s.flagged.map((f, i) => {
     const st = scanRowState[scanKey(f)] || {};
     return `
@@ -2205,13 +2245,22 @@ function dsCellHtml(label, im, idPrefix) {
    </div>`;
 }
 
+let _dsExCache = { label: null, ex: null };
+function dsExDrop() { _dsExCache = { label: null, ex: null }; }
+
 async function dsView(label, page = 0, scrollTo = false) {
   try {
     const DS_PAGE = dsPageSize();
     const enc = encodeURIComponent(label);
+    // exemplars only change on a gallery rebuild or a pin toggle —
+    // page flips and the modal walk's grid refreshes were re-paying
+    // up to 100 server-side decodes per click
+    const exCached = _dsExCache.label === label ? _dsExCache.ex : null;
     const [j, ex] = await Promise.all([
       api(`/api/dataset/images?label=${enc}&offset=${page * DS_PAGE}&limit=${DS_PAGE}`),
+      exCached ||
       api(`/api/dataset/images?label=${enc}&exemplars=1&limit=100`)]);
+    _dsExCache = { label, ex };
     // selection survives page flips within a class — only switching to a
     // different class resets it (and stales the detail modal's nav list)
     if (dsCur.label !== label) { dsSel.clear(); dsNav.label = null; }
@@ -2263,6 +2312,7 @@ async function dsPin(label, index, state) {
                    excluded: "Excluded — never an exemplar",
                    none: "Back to automatic selection" }[state] +
       " (takes effect at the next gallery rebuild)", true);
+    dsExDrop();                        // badge states ride the exemplar set
     dsView(label, dsCur.page);
   } catch (e) { msg("dsMsg", e.message, false); }
 }
@@ -2316,6 +2366,7 @@ let galPollTimer = null;
 function galRebuild(statusEl) {
   return async () => {
     const out = $(statusEl);
+    clearTimeout(galPollTimer);        // a second click must not fork pollers
     try {
       await postJson("/api/gallery/rebuild", {});
       out.textContent = "rebuilding gallery…";
@@ -2324,6 +2375,7 @@ function galRebuild(statusEl) {
         if (s.running) { galPollTimer = setTimeout(poll, 3000); return; }
         out.textContent = s.error
           ? `failed: ${s.error}` : `gallery done ${s.done} — ${s.log}`;
+        dsExDrop();                    // new gallery = new exemplar set
         if (!s.error && dsCur.label) dsView(dsCur.label, dsCur.page);
         refresh();
       };
@@ -2472,8 +2524,8 @@ async function dsMove(label, index) {
       { label, index, to: $("dsMoveTo").value });
     msg("dsMsg", `Moved to ${j.moved_to}`, true);
     dsNavAdvance(label, index);      // stay in the walk: next image up
-    await refresh();
-    dsView(label, dsCur.page);       // grid underneath catches up
+    refresh();                       // counts + grid catch up in parallel,
+    dsView(label, dsCur.page);       // nothing serializes behind them
   } catch (e) { msg("dsMsg", e.message, false); }
 }
 
@@ -2483,7 +2535,7 @@ async function dsDelPair(label, index) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label, index }) });
     msg("dsMsg", `Deleted ${label} #${index}`, true);
-    await refresh();
+    refresh();
     dsView(label, dsCur.page);
   } catch (e) { msg("dsMsg", e.message, false); }
 }
@@ -2873,7 +2925,10 @@ function fmtRunId(id) {
 async function batchSync() {
   clearTimeout(batchTimer);
   try {
-    const s = await api("/api/run/status");
+    // brief=1: this poller only reads counters — the full status hauls
+    // ~200KB of recent-case thumbnails per tick, twice a second when
+    // the Sort page's poller is also alive
+    const s = await api("/api/run/status?brief=1");
     if (s.running) {
       batchRun = s.run_id;
       $("btnBatchStart").style.display = "none";
@@ -2881,7 +2936,10 @@ async function batchSync() {
       $("batchRunSel").style.display = "none";
       $("batchStatus").textContent =
         `capturing… ${s.sorted} cases so far`;
-      batchTimer = setTimeout(batchSync, 1500);
+      // keep watching for run-end even off-tab, just less eagerly
+      const here = $("collect").classList.contains("active")
+                   && colView === "batch" && !document.hidden;
+      batchTimer = setTimeout(batchSync, here ? 1500 : 5000);
       return;
     }
     $("btnBatchStart").style.display = "";
@@ -3127,12 +3185,20 @@ async function batchFile(i, discard, fileAll) {
     $(`bg_${i}`).innerHTML =
       `<div class="muted" style="padding:6px">${g.resolved}</div>`;
     refresh();          // dataset counts move on Collect/Train tabs
-    // removed cases stay unresolved — regroup them into their own cards
-    // so each can be filed (or discarded) on its own terms
-    const removedHere = g.cases.some(c => exc.has(c.n));
-    if (removedHere) {
-      g.cases.forEach(c => exc.delete(c.n));
-      await loadBatchGroups(batchRun);
+    // removed cases stay unresolved — regroup them into their own LOCAL
+    // card so each can be filed (or discarded) on its own terms (the
+    // server round-trip here re-embedded and re-clustered the whole run)
+    const left = g.cases.filter(c => exc.has(c.n));
+    if (left.length) {
+      left.forEach(c => exc.delete(c.n));
+      $("batchStatus").textContent =
+        `${g.resolved} — ${left.length} pulled-out case${
+          left.length === 1 ? "" : "s"} regrouped below`;
+      g.cases = left;
+      delete g.resolved;               // the receipt moved to the status line
+      g.kind = "cluster";
+      g.label = null;
+      renderBatchGroups();
     }
   } catch (e) { $("batchStatus").textContent = e.message; }
 }
@@ -3148,7 +3214,10 @@ $("camFast").onchange = () => {          // swap the live stream in place
 
 async function livePreviewTick() {
   if (!STATE || STATE.camera !== "ok") return;
-  if (!$("collect").classList.contains("active") || colView !== "setup") return;
+  if (!$("collect").classList.contains("active") || colView !== "setup"
+      || document.hidden) return;
+  if (livePreviewTick._busy) return;   // a slow preview must not pile up
+  livePreviewTick._busy = true;
   try {
     const j = await api(`/api/imaging/preview?frac=${$("pocketFrac").value}` +
       `&rim=${$("rimScale").value}&mode=${(STATE.imaging.crop_mode || "normal")}`);
@@ -3157,6 +3226,7 @@ async function livePreviewTick() {
     if (j.indicator) $("maskPrev").src = j.indicator;
     $("capState").textContent = `live preview · sharpness ${j.sharpness}`;
   } catch {}
+  finally { livePreviewTick._busy = false; }
 }
 setInterval(livePreviewTick, 1200);
 const livePreviewNow = debounce(livePreviewTick, 200);
@@ -4747,8 +4817,12 @@ $("btnResetCounters").onclick = () => postJson("/api/run/reset_counters", {}).th
 
 async function pollRun() {
   clearTimeout(runTimer);
+  // off the Sort tab (or with the browser tab hidden) the poll only
+  // needs counters and run-end detection — no thumbnails, slower tick
+  const runVisible = $("run").classList.contains("active")
+                     && !document.hidden;
   let s;
-  try { s = await api("/api/run/status"); }
+  try { s = await api("/api/run/status" + (runVisible ? "" : "?brief=1")); }
   catch {
     // one failed poll must NOT kill the watcher — a mid-run blip used
     // to end it silently, so the run finished with no banner or report
@@ -4773,7 +4847,11 @@ async function pollRun() {
     : r.reason === "no_bin_mapping" ? `${r.category} · no bin`
     : `unmatched · ${REASONS[r.reason] || r.reason}`;
   const last = s.recent && s.recent[s.recent.length - 1];
-  if (last) {
+  // identical payload -> identical DOM: don't re-decode 10 inline
+  // thumbnails a second when nothing new was sorted
+  const recentKey = last ? s.recent.map(r => r.n).join() : "";
+  if (last && recentKey !== pollRun._key) {
+    pollRun._key = recentKey;
     $("runLast").className = "";
     $("runLast").innerHTML = `<div class="runCase ${classified(last) ? "" : "rej"}">
       ${last.thumb ? `<img src="${last.thumb}" alt="current case">` : ""}
@@ -4828,7 +4906,8 @@ async function pollRun() {
     }
   }
 
-  drawDisc($("runDisc"), last ? last.bin : null, s.bin_counts || {});
+  if (runVisible)
+    drawDisc($("runDisc"), last ? last.bin : null, s.bin_counts || {});
 
   $("runScore").innerHTML = s.score ? `
     <h3>Ground-truth score (sim)</h3>
@@ -4843,7 +4922,7 @@ async function pollRun() {
   const banner = $("runEndBanner");
   if (s.running) {
     banner.style.display = "none";
-    runTimer = setTimeout(pollRun, 1000);
+    runTimer = setTimeout(pollRun, runVisible ? 1000 : 3000);
   } else if (s.finished) {
     // fork firmware homing telemetry: seek µsteps per feed cycle — a
     // rising "last" against "worst" is the wheel drifting toward a jam
@@ -5051,7 +5130,11 @@ async function revResolve(run, n, save) {
     card.remove();
     msg("revMsg", save ? `Saved as ${j.saved}` : "Discarded", true);
     if (save) refresh();
-    loadRuns();
+    // flicking through cards must feel instant: the dropdown's
+    // "N to review" counts refresh in one debounced pass, not with a
+    // full runs-directory walk per click
+    clearTimeout(revResolve._t);
+    revResolve._t = setTimeout(loadRuns, 2500);
     // the list is served 100 at a time — an empty grid may just mean the
     // batch is done, so ask again for whatever is still on disk
     if (!$("revGrid").children.length) loadRejects();
@@ -5482,7 +5565,7 @@ async function loadNetwork() {
   }
 }
 // keep the header truthful even if nothing opens the dialog
-setInterval(loadNetwork, 30000);
+setInterval(() => { if (!document.hidden) loadNetwork(); }, 30000);
 
 $("netHeader").onclick = () => {
   $("netModal").style.display = "flex";
@@ -5602,16 +5685,21 @@ async function pollConsole() {
         `<span class="${l.dir === ">" ? "tx" : "rx"}">${l.t} ${l.dir} ${l.line}</span>`).join("\n")
       || "connected — waiting for traffic"
     : "not connected";
-  for (const id of ["conLog", "conDockLog"]) {
-    const el = $(id);
-    const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-    el.innerHTML = html;
-    if (stick) el.scrollTop = el.scrollHeight;
+  if (html !== pollConsole._last) {    // unchanged log: no DOM rebuild
+    pollConsole._last = html;
+    for (const id of ["conLog", "conDockLog"]) {
+      const el = $(id);
+      const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+      el.innerHTML = html;
+      if (stick) el.scrollTop = el.scrollHeight;
+    }
   }
   $("conDockDot").className = "dot" + (connected ? " on" : "");
-  // keep polling while there's a reader: the board log itself accumulates
-  // server-side either way, this only drives the two displays
-  if (connected || conDockOpen || $("machine").classList.contains("active"))
+  // poll only while someone is LOOKING at a console (the dock, or the
+  // Machine tab) — "connected" alone kept this ticking forever, since
+  // a board is attached in normal operation; the server accumulates
+  // the log either way
+  if (conDockOpen || $("machine").classList.contains("active"))
     conTimer = setTimeout(pollConsole, 900);
 }
 
