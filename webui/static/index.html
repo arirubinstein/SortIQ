@@ -2935,10 +2935,41 @@ async function loadBatchGroups(run) {
   const j = await api(`/api/runs/${run}/groups`);
   $("batchStatus").textContent =
     `${j.total} cases captured — confirm the groups below (click a case to pull it out of its group)`;
-  const opts = fileOpts();
   window._batchGroups = j.groups;
   window._batchExc = window._batchExc || new Set();
-  $("batchGroups").innerHTML = j.groups.map((g, i) => {
+  renderBatchGroups();
+}
+
+// resolved cases leave by LOCAL re-render — the groups endpoint
+// re-embeds and re-clusters every unknown on the machine, so a
+// re-fetch after each pull-out File/Discard stalled for seconds
+function batchDropCases(ns) {
+  const gone = new Set(ns);
+  window._batchGroups = window._batchGroups
+    .map(g => g.resolved ? g
+         : Object.assign({}, g, { cases: g.cases.filter(c => !gone.has(c.n)) }))
+    .filter(g => g.resolved || g.cases.length);
+  renderBatchGroups();
+}
+
+function renderBatchGroups() {
+  const opts = fileOpts();
+  const groups = window._batchGroups || [];
+  // a re-render must not eat half-made choices on OTHER cards: remember
+  // each group's dropdown pick and typed name, keyed by member case
+  // (indices shift when groups empty out, case numbers never do)
+  const kept = {};
+  document.querySelectorAll("#batchGroups select.revStamp").forEach(sel => {
+    const cardEl = sel.closest(".card");
+    const inp = cardEl.querySelector("input[id^='bgNew_']");
+    const v = { sel: sel.value, inp: inp ? inp.value : "" };
+    cardEl.querySelectorAll(".revCard").forEach(cc =>
+      kept[cc.id.slice(4)] = v);
+  });
+  $("batchGroups").innerHTML = groups.map((g, i) => {
+    if (g.resolved)          // filed/discarded groups keep their receipt
+      return `<div class="card" id="bg_${i}" style="margin-top:10px">
+        <div class="muted" style="padding:6px">${g.resolved}</div></div>`;
     // who's crowding this pile: if one runner-up class dominates, name
     // it in the header — "high % but R-P right behind" in one glance
     const crowdCounts = {};
@@ -2986,9 +3017,10 @@ async function loadBatchGroups(run) {
     </div>`;
   }).join("") || `<div class="muted">nothing captured yet</div>`;
   updateBatchExcBar();
-  j.groups.forEach((g, i) => {
+  groups.forEach((g, i) => {
     const sel = $(`bgSel_${i}`);
     if (!sel) return;
+    const k = g.cases.length ? kept[g.cases[0].n] : null;
     if (g.kind === "class") {
       sel.innerHTML = opts;
       if (g.label) sel.value = g.label;
@@ -2997,6 +3029,11 @@ async function loadBatchGroups(run) {
       // a suggest group pre-selects the model's best guess — one click
       // confirms the whole pile, the dropdown overrides when it's wrong
       sel.value = g.kind === "suggest" && g.label ? g.label : "";
+    }
+    if (k) {                       // survivor choices win over defaults
+      if (k.sel) sel.value = k.sel;
+      const inp = $(`bgNew_${i}`);
+      if (inp && k.inp) inp.value = k.inp;
     }
   });
 }
@@ -3037,10 +3074,10 @@ async function batchExcResolve(discard) {
   try {
     const j = await postJson(`/api/runs/${batchRun}/cases/bulk_resolve`, body);
     window._batchExc.clear();
+    batchDropCases(ns);
     $("batchStatus").textContent = discard
       ? `discarded ${j.discarded}` : bulkFiledMsg(j);
     refresh();
-    await loadBatchGroups(batchRun);
   } catch (e) { $("batchStatus").textContent = e.message; }
 }
 $("btnBatchExcFile").onclick = () => batchExcResolve(false);
@@ -3086,8 +3123,9 @@ async function batchFile(i, discard, fileAll) {
   }
   try {
     const j = await postJson(`/api/runs/${batchRun}/cases/bulk_resolve`, body);
-    $(`bg_${i}`).innerHTML = `<div class="muted" style="padding:6px">${discard
-      ? `discarded ${j.discarded}` : bulkFiledMsg(j)}</div>`;
+    g.resolved = discard ? `discarded ${j.discarded}` : bulkFiledMsg(j);
+    $(`bg_${i}`).innerHTML =
+      `<div class="muted" style="padding:6px">${g.resolved}</div>`;
     refresh();          // dataset counts move on Collect/Train tabs
     // removed cases stay unresolved — regroup them into their own cards
     // so each can be filed (or discarded) on its own terms
