@@ -2219,7 +2219,9 @@ async function dsView(label, page = 0, scrollTo = false) {
     updateBulkBar();
     $("dsGallery").style.display = "";
     $("dsHint").style.display = "none";
-    dsCloseDetail();
+    // NOTE: no dsCloseDetail() here — the detail modal overlays the
+    // page, so any dsView while it's open is the walk refreshing the
+    // grid underneath (after a Move/Delete); closing it killed the walk
     $("dsGalleryTitle").textContent = `${label} — ${j.total} image${j.total === 1 ? "" : "s"}`;
     $("dsThumbs").innerHTML = j.images.map(im => dsCellHtml(label, im, "dsCell_")).join("");
     $("dsExCard").style.display = ex.images.length ? "" : "none";
@@ -2469,9 +2471,9 @@ async function dsMove(label, index) {
     const j = await postJson("/api/dataset/move",
       { label, index, to: $("dsMoveTo").value });
     msg("dsMsg", `Moved to ${j.moved_to}`, true);
-    await refresh();
-    dsView(label, dsCur.page);
     dsNavAdvance(label, index);      // stay in the walk: next image up
+    await refresh();
+    dsView(label, dsCur.page);       // grid underneath catches up
   } catch (e) { msg("dsMsg", e.message, false); }
 }
 
