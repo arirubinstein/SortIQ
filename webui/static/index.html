@@ -1113,7 +1113,7 @@
       <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap">
         <button class="primary" id="btnTest">Classify</button>
         <button class="ghost" id="btnTestCam" style="display:none">Classify from camera</button>
-        <button class="ghost" id="btnTestFeed" style="display:none"
+        <button class="ghost" id="btnTestFeedCase" style="display:none"
           title="run one feed cycle — seats the next case under the camera">Feed next case</button>
         <button class="ghost" id="btnTestSynth">Try a synthetic case</button>
       </div>
@@ -1568,7 +1568,7 @@ async function refresh() {
   $("camPanels").style.display = camOk ? "" : "none";
   $("noCam").style.display = camOk ? "none" : "";
   $("btnTestCam").style.display = camOk ? "" : "none";
-  $("btnTestFeed").style.display = camOk ? "" : "none";
+  $("btnTestFeedCase").style.display = camOk ? "" : "none";
   syncTestStream();
   syncCollectStream();
 }
@@ -4472,8 +4472,8 @@ $("btnTestSynth").onclick = () => {
   const fd = new FormData(); fd.append("synthetic", "1");
   runTest(fd, { synthetic: true });
 };
-$("btnTestFeed").onclick = async () => {
-  const b = $("btnTestFeed");
+$("btnTestFeedCase").onclick = async () => {
+  const b = $("btnTestFeedCase");
   b.disabled = true;
   msg("testMsg", "feeding…", true);
   try {
