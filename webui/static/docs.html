@@ -160,11 +160,28 @@ cheat sheet) and every photo files at once — the class is created and,
 at 3+ photos, starts sorting immediately. The tray exists to be emptied.
 </p>
 
+<h2>Class structure — split for the model, family for the bin</h2>
+<p>
+The matcher identifies by <b>look, not brand</b>. When one headstamp name
+covers visibly different dies (FC plain / dots / diamonds, WIN plain /
+numbers / +P), give each look its <b>own class</b> — a variant hiding
+inside its parent matches at coin-flip margins, while a split class
+matches decisively. Then group the variants into a <b>family</b> (Dataset
+page) and assign the family to a bin: they sort together physically, and
+a close call between two family members headed to the same bin is
+<b>accepted</b> instead of rejected — hesitating between siblings costs
+nothing. Keep classes honest with the <b>mislabel scan</b> (seconds,
+whole dataset) and re-scan after fixes. The full doctrine:
+<a href="https://github.com/yamanub/SortIQ/blob/master/docs/TRAINING_GUIDE.md"
+target="_blank" rel="noopener">docs/TRAINING_GUIDE.md</a>.
+</p>
+
 <h2>Training</h2>
 <ul>
 <li>The gallery handles day-to-day growth with <b>no training at all</b> —
 new classes, new photos, pins and exclusions all take effect at the next
-<b>Rebuild gallery</b> (a few minutes, on either machine).</li>
+<b>Rebuild gallery</b> — seconds, on either machine (unchanged photos
+reuse their stored vectors; only a fresh model pays full price once).</li>
 <li>A full <b>retraining of the embedding network</b> sharpens everything —
 worth doing after the dataset has grown or shifted substantially. On the
 machine, <b>Train models…</b> (Train tab) opens a window that drives the
