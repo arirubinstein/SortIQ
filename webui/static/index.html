@@ -2431,10 +2431,11 @@ async function dsBulk(action) {
       !confirm(`Delete ${dsSel.size} image(s) from ${dsCur.label}? This removes the raw photos permanently.`))
     return;
   try {
+    const sent = [...dsSel];     // snapshot: cells can toggle mid-request
     const j = await postJson("/api/dataset/bulk", { label: dsCur.label,
-      indices: [...dsSel], action, to: action === "move" ? $("dsBulkTo").value : undefined });
+      indices: sent, action, to: action === "move" ? $("dsBulkTo").value : undefined });
     msg("dsMsg", `${action === "move" ? "Moved" : "Deleted"} ${j.processed} image(s)`, true);
-    dsExTouch(dsCur.label, [...dsSel]);
+    dsExTouch(dsCur.label, sent);
     dsSel.clear();               // the selection was consumed by the action
     await refresh();
     dsView(dsCur.label, 0);
@@ -3198,7 +3199,8 @@ async function batchFile(i, discard, fileAll) {
     // a pull-out resolve may have re-rendered (cloned groups, shifted
     // indices) while this request was in flight — re-locate the group
     // by a member case before touching the DOM or the cache
-    const probe = g.cases[0] && g.cases[0].n;
+    const probe = ns[0];   // a case IN this resolve can't be pulled out —
+                           // g.cases[0] could be, and would mis-probe
     const ni = window._batchGroups.findIndex(
       x => x.cases.some(c => c.n === probe));
     const gg = ni >= 0 ? window._batchGroups[ni] : g;
