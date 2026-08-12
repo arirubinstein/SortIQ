@@ -1808,6 +1808,7 @@ function renderFamilies() {
   if ($("famEditor").style.display !== "none"
       && document.querySelectorAll(".famChk").length) {
     return;      // an open editor's ticks are the user's — even all-clear
+  }
   const checked = new Set(fams[$("famName").value.trim().toUpperCase()] || []);
   $("famMembers").innerHTML = [...STATE.stamp_labels].sort()
     .map(s => `<label style="display:flex; gap:6px; align-items:center;
