@@ -94,6 +94,7 @@ def rebuild_crops(root, labels=None, incremental=False):
     root = Path(root)
     raw = root / "raw"
     base = root / "stamp"
+    t0 = time.time()
     stamps = (None if labels is None
               else {parse_label(l)[0] for l in labels})
     sig = _crops_sig(root) if labels is None else None
@@ -130,8 +131,15 @@ def rebuild_crops(root, labels=None, incremental=False):
                 n_stamp += 1
     if incremental and base.is_dir():
         # deletions must propagate: sweep crops whose raw source is gone
+        # — but never one saved AFTER this rebuild started (a live
+        # capture filing mid-rebuild lands after our raw walk passed)
         for png in base.rglob("*.png"):
             if png not in expected:
+                try:
+                    if png.stat().st_mtime >= t0:
+                        continue
+                except OSError:
+                    continue
                 _unlink_retry(png)
     if labels is None:
         sig_p.parent.mkdir(parents=True, exist_ok=True)

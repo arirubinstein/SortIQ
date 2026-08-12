@@ -186,9 +186,15 @@ def main():
 
     print(f"vectors: {n_cached} reused from the previous gallery, "
           f"{n_new} freshly embedded")
+    # the imaging signature the crops were shaped by, carried along so a
+    # consumer on ANOTHER machine can tell whether banked vectors still
+    # describe its own crops (see EmbedClassifier.bank_vec)
+    crops_sig_p = crops / ".crops_sig"
     meta = {"tau": args.tau, "margin_floor": args.margin_floor,
             "exemplars": args.exemplars, "pinned": n_pinned,
             "model": Path(args.model).name, "model_digest": model_digest,
+            "crops_sig": (crops_sig_p.read_text()
+                          if crops_sig_p.is_file() else None),
             "built_at": time.strftime("%Y-%m-%d %H:%M"),
             "classes": len(set(cls)), "vectors": len(vecs)}
     np.savez_compressed(out_path, g_vec=np.stack(vecs),

@@ -1553,6 +1553,11 @@ async function refresh() {
   const who = id.name || id.host || "";
   $("whoAmI").textContent = who + (id.trainer ? " · trainer" : "");
   document.title = `SortIQ — ${who}`;
+  // a model/profile switch (from ANY path, including another browser
+  // tab) invalidates the per-class exemplar cache — same class name,
+  // different dataset
+  const modelKey = `${STATE.cartridge}/${STATE.model}`;
+  if (refresh._model !== modelKey) { refresh._model = modelKey; dsExDrop(); }
   renderModelBar(); renderModelSelect();
   renderVisibleTabs();
   if (!$("test").querySelector("#discWrap svg")) drawDisc($("discWrap"), null);
@@ -1722,7 +1727,7 @@ const _TAB_RENDER = {
   collect: () => renderCollect(),
   dataset: () => renderDatasetMgr(),
   train: () => renderTrainInfo(),
-  test: () => renderBins(),
+  run: () => renderBins(),     // the bin editor lives on the SORT page
 };
 function renderVisibleTabs() {
   for (const tab of Object.keys(_TAB_RENDER)) {
@@ -1800,15 +1805,9 @@ function renderFamilies() {
     : `<div class="muted">no families yet — name one below and pick its members</div>`;
   // mid-edit ticks survive background refreshes: a save elsewhere used
   // to reset every checkbox to the stored family
-  if ($("famEditor").style.display !== "none") {
-    const live = new Set([...document.querySelectorAll(".famChk")]
-                         .filter(c => c.checked).map(c => c.value));
-    if (live.size) {
-      document.querySelectorAll(".famChk").forEach(c =>
-        c.checked = live.has(c.value));
-      return;
-    }
-  }
+  if ($("famEditor").style.display !== "none"
+      && document.querySelectorAll(".famChk").length) {
+    return;      // an open editor's ticks are the user's — even all-clear
   const checked = new Set(fams[$("famName").value.trim().toUpperCase()] || []);
   $("famMembers").innerHTML = [...STATE.stamp_labels].sort()
     .map(s => `<label style="display:flex; gap:6px; align-items:center;
@@ -1879,6 +1878,7 @@ $("btnScan").onclick = async () => {
     await postJson("/api/dataset/scan",
                    { label: $("dupScanSel").value || undefined });
     scanRowState = {};          // fresh scan, fresh triage state
+    renderScan._key = null;     // and a fresh list render
     scanCur = -1;
     pollScan();
   } catch (e) { msg("dsMsg", e.message, false); }
@@ -2152,6 +2152,7 @@ async function dupResolve(i) {
   try {
     await postJson("/api/dataset/bulk",
                    { action: "delete", label: g.label, indices: del });
+    dsExTouch(g.label, del);
     dupState[dupKey(g)] = `kept #${g.keep} · deleted ${del.length} ✓`;
     $(`dupG_${i}`).style.opacity = ".45";
     $(`dupKeep_${i}`).disabled = $(`dupIgn_${i}`).disabled = true;
@@ -2247,6 +2248,13 @@ function dsCellHtml(label, im, idPrefix) {
 
 let _dsExCache = { label: null, ex: null };
 function dsExDrop() { _dsExCache = { label: null, ex: null }; }
+// drop the cached exemplar strip only when a touched image is actually
+// IN it — the modal walk over non-exemplars stays round-trip-free
+function dsExTouch(label, indices) {
+  if (_dsExCache.label === label && _dsExCache.ex
+      && _dsExCache.ex.images.some(im => indices.includes(im.index)))
+    dsExDrop();
+}
 
 async function dsView(label, page = 0, scrollTo = false) {
   try {
@@ -2366,9 +2374,11 @@ let galPollTimer = null;
 function galRebuild(statusEl) {
   return async () => {
     const out = $(statusEl);
-    clearTimeout(galPollTimer);        // a second click must not fork pollers
     try {
       await postJson("/api/gallery/rebuild", {});
+      // clear only AFTER a successful start: an impatient second click
+      // 409s, and clearing first would orphan the live rebuild's poller
+      clearTimeout(galPollTimer);
       out.textContent = "rebuilding gallery…";
       const poll = async () => {
         const s = await api("/api/gallery/rebuild");
@@ -2423,6 +2433,7 @@ async function dsBulk(action) {
     const j = await postJson("/api/dataset/bulk", { label: dsCur.label,
       indices: [...dsSel], action, to: action === "move" ? $("dsBulkTo").value : undefined });
     msg("dsMsg", `${action === "move" ? "Moved" : "Deleted"} ${j.processed} image(s)`, true);
+    dsExTouch(dsCur.label, [...dsSel]);
     dsSel.clear();               // the selection was consumed by the action
     await refresh();
     dsView(dsCur.label, 0);
@@ -2523,6 +2534,7 @@ async function dsMove(label, index) {
     const j = await postJson("/api/dataset/move",
       { label, index, to: $("dsMoveTo").value });
     msg("dsMsg", `Moved to ${j.moved_to}`, true);
+    dsExTouch(label, [index]);
     dsNavAdvance(label, index);      // stay in the walk: next image up
     refresh();                       // counts + grid catch up in parallel,
     dsView(label, dsCur.page);       // nothing serializes behind them
@@ -2535,6 +2547,7 @@ async function dsDelPair(label, index) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label, index }) });
     msg("dsMsg", `Deleted ${label} #${index}`, true);
+    dsExTouch(label, [index]);
     refresh();
     dsView(label, dsCur.page);
   } catch (e) { msg("dsMsg", e.message, false); }
@@ -3181,23 +3194,32 @@ async function batchFile(i, discard, fileAll) {
   }
   try {
     const j = await postJson(`/api/runs/${batchRun}/cases/bulk_resolve`, body);
-    g.resolved = discard ? `discarded ${j.discarded}` : bulkFiledMsg(j);
-    $(`bg_${i}`).innerHTML =
-      `<div class="muted" style="padding:6px">${g.resolved}</div>`;
+    // a pull-out resolve may have re-rendered (cloned groups, shifted
+    // indices) while this request was in flight — re-locate the group
+    // by a member case before touching the DOM or the cache
+    const probe = g.cases[0] && g.cases[0].n;
+    const ni = window._batchGroups.findIndex(
+      x => x.cases.some(c => c.n === probe));
+    const gg = ni >= 0 ? window._batchGroups[ni] : g;
+    gg.resolved = discard ? `discarded ${j.discarded}` : bulkFiledMsg(j);
+    const card = ni >= 0 && $(`bg_${ni}`);
+    if (card) card.innerHTML =
+      `<div class="muted" style="padding:6px">${gg.resolved}</div>`;
+    else renderBatchGroups();
     refresh();          // dataset counts move on Collect/Train tabs
     // removed cases stay unresolved — regroup them into their own LOCAL
     // card so each can be filed (or discarded) on its own terms (the
     // server round-trip here re-embedded and re-clustered the whole run)
-    const left = g.cases.filter(c => exc.has(c.n));
+    const left = gg.cases.filter(c => exc.has(c.n));
     if (left.length) {
       left.forEach(c => exc.delete(c.n));
       $("batchStatus").textContent =
-        `${g.resolved} — ${left.length} pulled-out case${
+        `${gg.resolved} — ${left.length} pulled-out case${
           left.length === 1 ? "" : "s"} regrouped below`;
-      g.cases = left;
-      delete g.resolved;               // the receipt moved to the status line
-      g.kind = "cluster";
-      g.label = null;
+      gg.cases = left;
+      delete gg.resolved;              // the receipt moved to the status line
+      gg.kind = "cluster";
+      gg.label = null;
       renderBatchGroups();
     }
   } catch (e) { $("batchStatus").textContent = e.message; }
@@ -4848,7 +4870,9 @@ async function pollRun() {
     : `unmatched · ${REASONS[r.reason] || r.reason}`;
   const last = s.recent && s.recent[s.recent.length - 1];
   // identical payload -> identical DOM: don't re-decode 10 inline
-  // thumbnails a second when nothing new was sorted
+  // thumbnails a second when nothing new was sorted. Case numbers
+  // restart at 1 every run, so a new run resets the key too.
+  if (s.run_id !== pollRun._run) { pollRun._run = s.run_id; pollRun._key = ""; }
   const recentKey = last ? s.recent.map(r => r.n).join() : "";
   if (last && recentKey !== pollRun._key) {
     pollRun._key = recentKey;

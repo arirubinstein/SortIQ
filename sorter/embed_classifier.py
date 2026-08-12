@@ -77,6 +77,7 @@ class EmbedClassifier:
                         if "g_all_sig" in g else None)
         self.all_idx = ({p: i for i, p in enumerate(self.all_path)}
                         if self.all_path else {})
+        self._crops_sig_cache = {}
         self.gallery_mtime = os.path.getmtime(gallery_path)
         try:
             with open(model_path, "rb") as f:
@@ -160,13 +161,28 @@ class EmbedClassifier:
             except OSError:
                 return None
             sig = f"{st.st_size}:{int(st.st_mtime)}"
-            # exact signature = the build that banked it; older than the
-            # gallery file covers a gallery built on another machine
-            # (trainer push) — the crop derives deterministically from
-            # the same raw + digest-matched code either way
-            if not ((self.all_sig is not None and self.all_sig[i] == sig)
-                    or st.st_mtime <= self.gallery_mtime):
-                return None
+            if not (self.all_sig is not None and self.all_sig[i] == sig):
+                # not the build that banked it. A gallery built on
+                # another machine (trainer push) is still trusted for
+                # crops that PREDATE it — but only when the imaging
+                # signature it was built under matches this machine's
+                # (an imaging reshape between build and install would
+                # otherwise validate vectors of the old-look crops)
+                if st.st_mtime > self.gallery_mtime:
+                    return None
+                want = self.meta.get("crops_sig")
+                if not want:
+                    return None
+                sig_p = crop_file.parent.parent / ".crops_sig"
+                cur = self._crops_sig_cache.get(sig_p)
+                if cur is None:
+                    try:
+                        cur = sig_p.read_text()
+                    except OSError:
+                        cur = ""
+                    self._crops_sig_cache[sig_p] = cur
+                if cur != want:
+                    return None
         return self.all_vec[i]
 
     def predict_vec(self, q, exclude_path=None):

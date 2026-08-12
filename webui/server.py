@@ -1814,6 +1814,7 @@ def api_dataset_images():
 
 
 _tray_cache = {}          # name -> (mtime, model_md5, vec, thumb)
+_tray_lock = threading.Lock()
 
 
 @app.get("/api/tray")
@@ -1837,7 +1838,8 @@ def api_tray():
         except OSError:
             continue
         live.add(name)
-        hit = _tray_cache.get(name)
+        with _tray_lock:
+            hit = _tray_cache.get(name)
         if hit and hit[0] == mt and hit[1] == md5:
             items.append({"n": int(name.split("_")[0]),
                           "vec": hit[2], "thumb": hit[3]})
@@ -1847,11 +1849,13 @@ def api_tray():
             continue
         vec = sh.embed(imaging.crop_head(img)) if sh is not None else None
         thumb = b64_jpg(imaging.head_view(img), max_side=200)
-        _tray_cache[name] = (mt, md5, vec, thumb)
+        with _tray_lock:
+            _tray_cache[name] = (mt, md5, vec, thumb)
         items.append({"n": int(name.split("_")[0]),
                       "vec": vec, "thumb": thumb})
-    for k in [k for k in _tray_cache if k not in live]:
-        del _tray_cache[k]
+    with _tray_lock:
+        for k in [k for k in _tray_cache if k not in live]:
+            del _tray_cache[k]
     groups = []
     if items and sh is not None:
         vecs = [it["vec"] for it in items]
@@ -2604,9 +2608,12 @@ def api_dataset_rebuild():
     changed outside the app (rsync from another machine, sync-tool lock
     leftovers). Idempotent: raw is the source of truth. Synchronous; the
     UI shows a busy state (~20-30s for a 1,400-image dataset on the Pi)."""
+    # the escape hatch stays an escape hatch: outside changes (rsync
+    # with preserved mtimes) can defeat the freshness check, so the
+    # manual button does the full reshape unless asked not to
     n_stamp, _ = rebuild_crops(
-        DATA_DIR, incremental=not (request.get_json(silent=True)
-                                   or {}).get("force"))
+        DATA_DIR, incremental=bool((request.get_json(silent=True)
+                                    or {}).get("incremental")))
     _counts_dirty()
     return jsonify({"ok": True, "crops": {"stamp": n_stamp}})
 
@@ -4919,8 +4926,8 @@ def api_run_groups(run_id):
                 with np.load(vp, allow_pickle=False) as z:
                     if str(z["model_md5"]) == (sh.model_md5 or ""):
                         vcache = dict(zip(z["ns"].tolist(), z["vecs"]))
-            except (OSError, ValueError, KeyError):
-                vcache = {}
+            except Exception:      # torn/corrupt cache must never 500 the
+                vcache = {}        # review page — it just recomputes
         vecs, fresh = [], False
         for e, p in unknown:
             v = vcache.get(e["n"])
@@ -4932,10 +4939,12 @@ def api_run_groups(run_id):
             vecs.append(v)
         if fresh:
             try:
+                tmp = vp.with_suffix(".tmp.npz")
                 np.savez_compressed(
-                    vp, model_md5=sh.model_md5 or "",
+                    tmp, model_md5=sh.model_md5 or "",
                     ns=np.array(list(vcache), dtype=np.int64),
                     vecs=np.stack(list(vcache.values())))
+                os.replace(tmp, vp)        # never leave a torn file behind
             except OSError:
                 pass                       # cache is an optimization only
         used = [False] * len(unknown)
