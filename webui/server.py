@@ -3116,6 +3116,16 @@ def api_code_update():
     """One-click trainer update: make this install byte-identical to the
     machine's deployable code, then restart into it. Every byte is pulled
     and verified before anything on disk is touched."""
+    # the restart at the end kills whatever this instance is doing — a
+    # live sorting run died at case 92 to a docs deploy before this
+    # guard existed. Busy means not now.
+    busy = ("a sorting run" if run_mgr.status().get("running")
+            else "training" if train_status.get("running")
+            else "a gallery rebuild" if _gal_build.get("running") else None)
+    if busy:
+        return jsonify({"error": f"{busy} is active — updating restarts "
+                                 "the app and would kill it; retry when "
+                                 "it finishes"}), 409
     import io
     import tarfile
     import urllib.request
