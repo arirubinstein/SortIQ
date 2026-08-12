@@ -1113,6 +1113,8 @@
       <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap">
         <button class="primary" id="btnTest">Classify</button>
         <button class="ghost" id="btnTestCam" style="display:none">Classify from camera</button>
+        <button class="ghost" id="btnTestFeed" style="display:none"
+          title="run one feed cycle — seats the next case under the camera">Feed next case</button>
         <button class="ghost" id="btnTestSynth">Try a synthetic case</button>
       </div>
       <div class="msg" id="testMsg"></div>
@@ -1566,6 +1568,7 @@ async function refresh() {
   $("camPanels").style.display = camOk ? "" : "none";
   $("noCam").style.display = camOk ? "none" : "";
   $("btnTestCam").style.display = camOk ? "" : "none";
+  $("btnTestFeed").style.display = camOk ? "" : "none";
   syncTestStream();
   syncCollectStream();
 }
@@ -4469,6 +4472,21 @@ $("btnTestSynth").onclick = () => {
   const fd = new FormData(); fd.append("synthetic", "1");
   runTest(fd, { synthetic: true });
 };
+$("btnTestFeed").onclick = async () => {
+  const b = $("btnTestFeed");
+  b.disabled = true;
+  msg("testMsg", "feeding…", true);
+  try {
+    // same slot-0 park as Collect's advance: seat the next case, then
+    // "Classify from camera" reads it — feed-and-check without a run
+    const j = await postJson("/api/machine/test", { action: "feed", slot: 0 });
+    msg("testMsg", j.result === "done"
+      ? "case seated — Classify from camera when ready" : j.result,
+      j.result === "done");
+  } catch (e) { msg("testMsg", e.message, false); }
+  b.disabled = false;
+};
+
 $("btnTestCam").onclick = async () => {
   try {
     const a = await api("/api/capture", { method: "POST" });
