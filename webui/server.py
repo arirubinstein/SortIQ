@@ -4259,7 +4259,7 @@ class RunManager:
                 # isn't known, and blind flushing is the one thing this
                 # machine must not do.
                 from sorter.cs72 import cancel_wait
-                WAIT_LIMIT, FLUSH_WAITS, EMPTY_FEEDS = 4, 3, 4
+                WAIT_LIMIT, FLUSH_WAITS, EMPTY_FEEDS = 8, 6, 4
                 waiting = 0
                 prev_slot = 0        # slot of the previous sort/prime (the
                                      # prime force-feeds at the park slot 0)
@@ -4293,6 +4293,18 @@ class RunManager:
                 writer = threading.Thread(target=_write_jobs, daemon=True)
                 writer.start()
 
+                def note(msg):
+                    # timestamped run-event breadcrumbs: when a run flips
+                    # to flush mode early, events.log says exactly which
+                    # gate reads led there — forensics we lacked when one
+                    # entered 76 cases before true end of brass
+                    try:
+                        with open(run_dir / "events.log", "a") as f:
+                            f.write(time.strftime("%H:%M:%S") + " "
+                                    + msg + "\n")
+                    except OSError:
+                        pass
+
                 def sort_reply():
                     """Await a sort/flush ack: DONE, JAM, WAITING (means
                     FLUSH_WAITS consecutive dry lines) or None (silence)."""
@@ -4305,6 +4317,7 @@ class RunManager:
                             return reply
                         if reply == "WAITING":
                             waits += 1
+                            note(f"gate empty {waits}/{FLUSH_WAITS} (sort ack)")
                             if waits >= FLUSH_WAITS:
                                 return reply
                     return reply
@@ -4327,7 +4340,9 @@ class RunManager:
                         break
                     if line == "WAITING":
                         waiting += 1
+                        note(f"gate empty {waiting}/{WAIT_LIMIT} (idle)")
                         if waiting >= WAIT_LIMIT:
+                            note("run END: out_of_brass (idle waits)")
                             with self.lock:           # dry: end of brass
                                 self.state["end_reason"] = "out_of_brass"
                             break
@@ -4424,10 +4439,12 @@ class RunManager:
                         # brass: reissue this sort forced and enter the
                         # flush loop.
                         outcome = cancel_wait(transport)
+                        note(f"cancel_wait -> {outcome} (case {sorted_n})")
                         if outcome == "resumed":
                             reply = "DONE"
                         elif outcome == "clean":
                             dry = True
+                            note(f"DRY/FLUSH MODE entered after case {sorted_n}")
                             transport.send(f"FLUSH:{prev_slot}:{slot}")
                             reply = sort_reply()
                         else:
