@@ -339,6 +339,22 @@ def open_camera_locked():
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, c["height"])
     if cap.isOpened():
         apply_camera_controls(cap, c.get("controls"))
+        if sys.platform.startswith("linux"):
+            # UVC controls OpenCV can't reach, and that reset at reboot:
+            # the bridge re-enables dynamic framerate on open, which
+            # stretches exposures in the dim nest into motion blur (the
+            # camera honors no manual exposure — bounding the frame
+            # period is the only shutter control we have). Best-effort:
+            # cameras without these controls just say no.
+            dev = _capture_device(c["index"])
+            node = dev if isinstance(dev, str) else f"/dev/video{dev}"
+            try:
+                subprocess.run(
+                    ("v4l2-ctl", "-d", node, "--set-ctrl",
+                     "exposure_dynamic_framerate=0,power_line_frequency=2"),
+                    capture_output=True, timeout=5)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
         _camera["cap"] = cap
         _camera["opened_t"] = time.monotonic()
         _camera["zoom"] = c.get("zoom") or {"factor": 1.0, "x": 0, "y": 0}
