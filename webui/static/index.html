@@ -537,6 +537,7 @@
 <main>
 
 <!-- ============================== COLLECT ============================== -->
+<datalist id="classList"></datalist>
 <section id="collect" class="active">
   <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px">
     <div class="viewToggle">
@@ -645,7 +646,9 @@
         <b id="batchExcCount" style="color:var(--brass)"></b>
         <span class="muted" style="font-size:12px">pulled out — file them to
         their real class:</span>
-        <select id="batchExcSel" style="max-width:200px"></select>
+        <input list="classList" id="batchExcSel" autocomplete="off"
+               spellcheck="false" placeholder="type a class&hellip;"
+               style="max-width:200px">
         <button class="ghost" id="btnBatchExcFile">File</button>
         <button class="ghost danger" id="btnBatchExcDiscard">Discard</button>
       </div>
@@ -1025,8 +1028,10 @@
       dataset for housekeeping. Rebuilds always cover everything.
     </div>
     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-      <select id="dupScanSel" style="max-width:140px; padding:2px 6px"
-              title="scope for the two scans: one class (fast) or the whole dataset"></select>
+      <input list="classList" id="dupScanSel" autocomplete="off"
+             spellcheck="false" placeholder="all classes"
+             style="max-width:140px; padding:2px 6px"
+             title="scope for the two scans: type one class (fast) or leave empty for the whole dataset">
       <button class="ghost" id="btnScan" style="padding:3px 10px"
               title="run every image through the current models — images that read as a DIFFERENT class at high confidence are usually saves that landed in the wrong folder">Scan for mislabels</button>
       <button class="ghost" id="btnDupScan" style="padding:3px 10px"
@@ -1077,7 +1082,9 @@
       </div>
       <div id="dsBulkBar" style="display:none; margin-top:8px" class="ctlRow">
         <b id="dsSelCount" style="color:var(--brass)">0 selected</b>
-        <select id="dsBulkTo" style="max-width:180px"></select>
+        <input list="classList" id="dsBulkTo" autocomplete="off"
+               spellcheck="false" placeholder="type a class&hellip;"
+               style="max-width:180px">
         <button class="ghost" id="btnBulkMove">Move selected</button>
         <button class="ghost danger" id="btnBulkDelete">Delete selected</button>
       </div>
@@ -1131,7 +1138,8 @@
           image joins the real dataset for the next training run.
         </div>
         <label>Headstamp</label>
-        <select id="tsStamp"></select>
+        <input list="classList" id="tsStamp" autocomplete="off"
+               spellcheck="false">
         <div style="margin-top:10px">
           <button class="ghost" id="btnTestSave">Save to dataset</button>
         </div>
@@ -1562,7 +1570,7 @@ async function refresh() {
   // different dataset
   const modelKey = `${STATE.cartridge}/${STATE.model}`;
   if (refresh._model !== modelKey) { refresh._model = modelKey; dsExDrop(); }
-  renderModelBar(); renderModelSelect();
+  renderModelBar(); renderModelSelect(); classListSync();
   renderVisibleTabs();
   if (!$("test").querySelector("#discWrap svg")) drawDisc($("discWrap"), null);
   const camOk = STATE.camera === "ok";
@@ -1780,9 +1788,6 @@ function renderDatasetMgr() {
   const labels = sortedLabels(raw, $("dsSortN").checked ? "count" : "alpha");
   // duplicate-scan scope picker: whole dataset, or one class for a
   // quick check right after a session on it (keeps the user's pick)
-  const prevScope = $("dupScanSel").value;
-  $("dupScanSel").innerHTML = `<option value="">all classes</option>` +
-    labels.map(l => `<option value="${l}"${l === prevScope ? " selected" : ""}>${l}</option>`).join("");
   $("dsMgr").innerHTML = labels.length
     ? labels.map(l => `<div class="dsRow"><span class="lbl" title="${l}"
           style="color:${classTier(raw[l])}">${l}</span>
@@ -1973,13 +1978,11 @@ async function scanView(i) {
         ${j.a ? `<img class="thumb" src="${j.a}" style="max-width:260px">` : ""}
         ${j.head_crop ? `<img class="thumb" src="${j.head_crop}" style="max-width:200px">` : ""}
       </div>`;
-    const opts = moveTargets(f.label).map(t =>
-      `<option ${t === f.pred ? "selected" : ""}>${t}</option>`).join("")
-      + `<option value="__NEW__">+ new class…</option>`;
     $("scanModalActions").innerHTML = `
       <button onclick="scanResolve(${i}, '${f.pred}')">Move to ${f.pred}</button>
       <label style="margin:0 0 0 10px">or</label>
-      <select id="scanMoveTo" style="max-width:180px">${opts}</select>
+      <input list="classList" id="scanMoveTo" autocomplete="off"
+        spellcheck="false" placeholder="other class&hellip;" style="max-width:180px">
       <button class="ghost" onclick="scanMoveChoice(${i})">Move</button>
       <button class="ghost danger" style="margin-left:auto"
               onclick="scanResolve(${i}, null)">Delete</button>`;
@@ -2439,8 +2442,6 @@ function updateBulkBar() {
     ? "Click thumbnails to select them, then move or delete the whole selection."
     : "Click a thumbnail to open it.";
   $("dsSelCount").textContent = `${dsSel.size} selected`;
-  if (on && dsCur.label)
-    $("dsBulkTo").innerHTML = moveOpts(dsCur.label);
 }
 $("dsMulti").onchange = () => {
   dsSel.clear();
@@ -2488,30 +2489,40 @@ function moveTargets(current) {
   return [...targets].sort();
 }
 
-// options for a move dropdown: every target plus "create one right here" —
-// the split workflow shouldn't detour through the Collect page
-function moveOpts(current) {
-  return moveTargets(current).map(t => `<option>${t}</option>`).join("")
-    + `<option value="__NEW__">+ new class…</option>`;
+// every class picker is an <input list="classList"> — type-to-filter
+// over one shared datalist (86 classes outgrew native selects, and a
+// hundred review cards no longer each carry a full option list)
+function classListSync() {
+  $("classList").innerHTML = [...STATE.stamp_labels].sort()
+    .map(s => `<option value="${s}">`).join("")
+    + `<option value="UNKNOWN" label="set aside — identify later">`;
 }
 
-// resolve a move dropdown's choice; the sentinel prompts for a name and
-// creates the class on the spot ("already exists" counts as success —
-// moving into an existing class is exactly what the user asked for)
-async function dsResolveTarget(sel) {
-  if (sel.value !== "__NEW__") return sel.value;
-  const name = (prompt("New class name:") || "").trim().toUpperCase();
-  if (!name) return null;
-  try {
-    await postJson("/api/stamps/add", { name });
-  } catch (e) {
-    if (!/already|exists/i.test(e.message)) {
-      msg("dsMsg", e.message, false);
-      return null;
+function classVal(el) { return (el.value || "").trim().toUpperCase(); }
+
+function classKnown(v) {
+  return STATE.stamp_labels.includes(v)
+    || Object.keys(STATE.datasets.real.raw || {}).includes(v);
+}
+
+// resolve a picker: a known class passes through; an unknown name is a
+// create-on-confirm — typing a new name IS the new-class gesture
+async function dsResolveTarget(el) {
+  const v = classVal(el);
+  if (!v) { msg("dsMsg", "type a destination class", false); return null; }
+  if (v !== "UNKNOWN" && !classKnown(v)) {
+    if (!confirm(`Create new class "${v}"?`)) return null;
+    try {
+      await postJson("/api/stamps/add", { name: v });
+    } catch (e) {
+      if (!/already|exists/i.test(e.message)) {
+        msg("dsMsg", e.message, false);
+        return null;
+      }
     }
+    refresh();
   }
-  refresh();
-  return name;
+  return v;
 }
 
 // prev/next state for the detail modal: the class's full ordered index
@@ -2531,7 +2542,6 @@ async function dsDetail(label, index) {
     const next = pos >= 0 && pos < dsNav.indices.length - 1
       ? dsNav.indices[pos + 1] : null;
     const j = await api(`/api/dataset/pair?label=${encodeURIComponent(label)}&index=${index}`);
-    const opts = moveOpts(label);
     $("dsImgModal").style.display = "flex";
     $("dsDetail").innerHTML = `
       <h3 style="margin:0">${label} #${index}${j.a_sharpness ? ` <span class="muted">· sharpness ${j.a_sharpness}</span>` : ""}</h3>
@@ -2543,7 +2553,8 @@ async function dsDetail(label, index) {
            justify-content:space-between; flex-wrap:wrap">
         <div style="display:flex; gap:8px; align-items:center; flex:none">
           <label style="margin:0">Move to</label>
-          <select id="dsMoveTo" style="max-width:150px">${opts}</select>
+          <input list="classList" id="dsMoveTo" autocomplete="off"
+            spellcheck="false" placeholder="type a class&hellip;" style="max-width:150px">
           <button class="ghost" onclick="dsMove('${esc}', ${index})">Move</button>
           <button class="ghost danger" onclick="dsDelNav('${esc}', ${index})">Delete</button>
         </div>
@@ -3081,17 +3092,14 @@ function batchDropCases(ns) {
 }
 
 function renderBatchGroups() {
-  const opts = fileOpts();
   const groups = window._batchGroups || [];
   // a re-render must not eat half-made choices on OTHER cards: remember
   // each group's dropdown pick and typed name, keyed by member case
   // (indices shift when groups empty out, case numbers never do)
   const kept = {};
-  document.querySelectorAll("#batchGroups select.revStamp").forEach(sel => {
-    const cardEl = sel.closest(".card");
-    const inp = cardEl.querySelector("input[id^='bgNew_']");
-    const v = { sel: sel.value, inp: inp ? inp.value : "" };
-    cardEl.querySelectorAll(".revCard").forEach(cc =>
+  document.querySelectorAll("#batchGroups input.revStamp").forEach(inp => {
+    const v = inp.value;
+    inp.closest(".card").querySelectorAll(".revCard").forEach(cc =>
       kept[cc.id.slice(4)] = v);
   });
   $("batchGroups").innerHTML = groups.map((g, i) => {
@@ -3120,11 +3128,11 @@ function renderBatchGroups() {
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
         <h3 style="margin:0">${label}</h3>
         <span style="flex:1"></span>
-        ${g.kind === "class"
-          ? `<select class="revStamp" id="bgSel_${i}"></select>`
-          : `<select class="revStamp" id="bgSel_${i}"></select>
-             <input type="text" id="bgNew_${i}" style="max-width:180px"
-               placeholder="…or name a new stamp">`}
+        <input list="classList" class="revStamp" id="bgSel_${i}"
+          autocomplete="off" spellcheck="false"
+          value="${g.kind !== "cluster" && g.label ? g.label : ""}"
+          placeholder="class — type a new name to create it"
+          style="max-width:220px">
         ${g.well_fed
           ? `<button class="ghost" onclick="batchFile(${i})">File novel</button>
              <button class="ghost" onclick="batchFile(${i}, false, true)">File all</button>`
@@ -3146,23 +3154,10 @@ function renderBatchGroups() {
   }).join("") || `<div class="muted">nothing captured yet</div>`;
   updateBatchExcBar();
   groups.forEach((g, i) => {
-    const sel = $(`bgSel_${i}`);
-    if (!sel) return;
+    const inp = $(`bgSel_${i}`);
+    if (!inp) return;
     const k = g.cases.length ? kept[g.cases[0].n] : null;
-    if (g.kind === "class") {
-      sel.innerHTML = opts;
-      if (g.label) sel.value = g.label;
-    } else {   // cluster/suggest: dropdown of known stamps + name box
-      sel.innerHTML = `<option value="">— pick existing —</option>` + opts;
-      // a suggest group pre-selects the model's best guess — one click
-      // confirms the whole pile, the dropdown overrides when it's wrong
-      sel.value = g.kind === "suggest" && g.label ? g.label : "";
-    }
-    if (k) {                       // survivor choices win over defaults
-      if (k.sel) sel.value = k.sel;
-      const inp = $(`bgNew_${i}`);
-      if (inp && k.inp) inp.value = k.inp;
-    }
+    if (k) inp.value = k;          // survivor choices win over defaults
   });
 }
 
@@ -3181,7 +3176,6 @@ function updateBatchExcBar() {
   $("batchExcBar").style.display = n ? "" : "none";
   if (n) {
     $("batchExcCount").textContent = `${n} case${n === 1 ? "" : "s"}`;
-    $("batchExcSel").innerHTML = fileOpts();
   }
 }
 
@@ -3198,7 +3192,10 @@ async function batchExcResolve(discard) {
   if (!ns.length) return;
   // pulled-out cases are a deliberate hand-filing — never intake-filtered
   const body = { ns, action: discard ? "discard" : "save", file_all: true };
-  if (!discard) body.stamp = $("batchExcSel").value;
+  if (!discard) {
+    body.stamp = await dsResolveTarget($("batchExcSel"));
+    if (!body.stamp) return;
+  }
   try {
     const j = await postJson(`/api/runs/${batchRun}/cases/bulk_resolve`, body);
     window._batchExc.clear();
@@ -3224,30 +3221,16 @@ async function batchFile(i, discard, fileAll) {
   // cluster piles are hard examples, always worth their disk space
   if (fileAll || g.kind !== "class") body.file_all = true;
   if (!discard) {
-    if (g.kind === "class") {
-      const b = stampChoice($(`bgSel_${i}`));
-      if (!b) return;
-      body.stamp = b.stamp;
-      if (b.create) body.create = true;
-    } else {
-      const sel = $(`bgSel_${i}`);
-      const name = $(`bgNew_${i}`).value.trim().toUpperCase();
-      // a TYPED name always wins — the dropdown may be pre-selected
-      // (suggest cards) and must never hijack an explicit new-class name
-      if (name) {
-        body.stamp = name;
-        if (name !== "UNKNOWN") body.create = true;
-      } else if (sel && sel.value) {   // an existing class the model missed
-        const b = stampChoice(sel);
-        if (!b) return;
-        body.stamp = b.stamp;
-        if (b.create) body.create = true;
-      } else {
-        $("batchStatus").textContent =
-          "pick an existing class or name the cluster first (or Discard all)";
-        return;
-      }
+    // one picker per card: a known class files there, an unknown typed
+    // name creates the class as it files, UNKNOWN sets aside
+    const v = classVal($(`bgSel_${i}`));
+    if (!v) {
+      $("batchStatus").textContent =
+        "pick a class or type a new name first (or Discard all)";
+      return;
     }
+    body.stamp = v;
+    if (v !== "UNKNOWN" && !classKnown(v)) body.create = true;
   }
   try {
     const j = await postJson(`/api/runs/${batchRun}/cases/bulk_resolve`, body);
@@ -4554,10 +4537,7 @@ function renderTestSave(j) {
   const show = lastTest && !lastTest.synthetic;
   $("testSave").style.display = show ? "" : "none";
   if (!show) return;
-  const sel = $("tsStamp");
-  sel.innerHTML = [...STATE.stamp_labels].sort((a, b) => a.localeCompare(b))
-                  .map(s => `<option>${s}</option>`).join("");
-  if (j.stamp && [...sel.options].some(o => o.value === j.stamp)) sel.value = j.stamp;
+  if (j.stamp) $("tsStamp").value = j.stamp;
   msg("tsMsg", "");
 }
 
@@ -5094,7 +5074,9 @@ async function loadReport(runId) {
           <div class="why">#${c.n} · ${c.stamp || "?"} · ${Math.round(c.conf * 100)}%</div>
           <div class="caseAct" style="display:flex; gap:6px">${c.filed
             ? `<span class="pill ok">filed ✓</span>`
-            : `<select class="revStamp" style="flex:1"></select>
+            : `<input list="classList" class="revStamp" style="flex:1"
+                 autocomplete="off" spellcheck="false"
+                 value="${c.stamp || ""}">
                <button class="ghost" style="padding:2px 10px"
                  onclick="caseResolve('${run}', ${c.n})">File</button>`}
           </div>
@@ -5155,16 +5137,6 @@ async function loadReport(runId) {
         ${binRows}</table>
       <div class="muted" style="margin:6px 0 2px">${reasonRow}</div>
       ${grids}`;
-    // populate + prefill each card's reassign select with its verdict —
-    // filing a mislabeled accept is then one glance and one click
-    const opts = fileOpts();
-    j.cases.forEach(c => {
-      const sel = document.querySelector(`#case_${c.n} .revStamp`);
-      if (sel) {
-        sel.innerHTML = opts;
-        if (c.stamp) sel.value = c.stamp;
-      }
-    });
     return true;
   } catch (e) { msg("revMsg", e.message, false); return false; }
 }
@@ -5181,39 +5153,34 @@ async function loadRejects() {
     }
     msg("revMsg", j.total > j.rejects.length
       ? `Showing the first ${j.rejects.length} of ${j.total} rejects — the rest load as these are resolved.` : "");
-    const stampOpts = fileOpts();
     $("revGrid").innerHTML = j.rejects.map(r => `
       <div class="revCard" id="rev_${r.n}">
         <img src="${r.thumb}">
         <div class="why">#${r.n} · ${rejectWhy(r)}</div>
-        <select class="revStamp">${stampOpts}</select>
+        <input list="classList" class="revStamp" autocomplete="off"
+          spellcheck="false" value="${r.stamp || ""}"
+          placeholder="class — or UNKNOWN to set aside">
         <div style="display:flex; gap:6px">
           <button class="ghost" style="flex:1" onclick="revResolve('${run}', ${r.n}, true)">Save</button>
           <button class="ghost danger" onclick="revResolve('${run}', ${r.n}, false)">Discard</button>
         </div>
       </div>`).join("");
-    // prefill each card with the model's best guess
-    j.rejects.forEach(r => {
-      const sSel = $(`rev_${r.n}`).querySelector(".revStamp");
-      if (r.stamp && [...sSel.options].some(o => o.value === r.stamp)) sSel.value = r.stamp;
-    });
   } catch (e) { msg("revMsg", e.message, false); }
 }
 
-// select value -> resolve body fields
-function stampChoice(sel) {
-  return { action: "save", stamp: sel.value };
+// picker value -> resolve body fields (typed values must be REAL:
+// reject/report filing never silently creates classes)
+function stampChoice(el) {
+  const v = classVal(el);
+  if (!v) return null;
+  if (v !== "UNKNOWN" && !classKnown(v)) {
+    alert(`No class named "${v}" — pick one from the list, or create it
+first (New class on the Dataset page).`);
+    return null;
+  }
+  return { action: "save", stamp: v };
 }
 
-// options shared by reject review and the report's reassign cards:
-// every class, plus the Unknown pool. New classes are NOT created here —
-// unknown stamps go to set-aside; naming the tray group creates the class
-// (one flow for new brass, and same-stamp strangers cluster together).
-function fileOpts(extra) {
-  return [...STATE.stamp_labels].sort((a, b) => a.localeCompare(b))
-    .map(s => `<option>${s}</option>`).join("") +
-    `<option value="UNKNOWN">Set aside — identify later</option>` + (extra || "");
-}
 
 async function revResolve(run, n, save) {
   const card = $(`rev_${n}`);
