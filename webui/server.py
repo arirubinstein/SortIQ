@@ -348,13 +348,20 @@ def open_camera_locked():
             # cameras without these controls just say no.
             dev = _capture_device(c["index"])
             node = dev if isinstance(dev, str) else f"/dev/video{dev}"
-            try:
-                subprocess.run(
-                    ("v4l2-ctl", "-d", node, "--set-ctrl",
-                     "exposure_dynamic_framerate=0,power_line_frequency=2"),
-                    capture_output=True, timeout=5)
-            except (OSError, subprocess.TimeoutExpired):
-                pass
+
+            def _pin_ctrls():
+                try:
+                    subprocess.run(
+                        ("v4l2-ctl", "-d", node, "--set-ctrl",
+                         "exposure_dynamic_framerate=0,"
+                         "power_line_frequency=2"),
+                        capture_output=True, timeout=5)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            # off-thread: a slow v4l2-ctl must never sit inside the
+            # camera lock (a mid-run watchdog reopen would stall the
+            # run loop's captures behind it)
+            threading.Thread(target=_pin_ctrls, daemon=True).start()
         _camera["cap"] = cap
         _camera["opened_t"] = time.monotonic()
         _camera["zoom"] = c.get("zoom") or {"factor": 1.0, "x": 0, "y": 0}
