@@ -45,7 +45,7 @@
   .msGrid > div { display: flex; flex-direction: column; }
   .msGrid > div > label { flex: 1; }
   .airField.off { opacity: .45; }
-  select, input[type=text], input[type=number] {
+  select, input[type=text], input[type=number], input[list] {
     background: var(--panel2); color: var(--text); border: 1px solid var(--line);
     border-radius: 6px; padding: 7px 10px; font: inherit; width: 100%; }
   button.primary { background: var(--brass); color: #14171c; border: none;
@@ -247,7 +247,7 @@
              border-radius: 8px; padding: 10px; }
   .revCard img { width: 100%; border-radius: 6px; }
   .revCard .why { color: var(--amber); font-size: 12.5px; margin: 6px 0; }
-  .revCard select { margin-bottom: 6px; }
+  .revCard select, .revCard input[list] { margin-bottom: 6px; }
   #conLog { height: 460px; overflow-y: auto; background: var(--panel2);
     border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
     font-size: 12.5px; margin: 0; }
@@ -610,7 +610,9 @@
           </div>
           <div id="recentFix" style="display:none; margin-top:10px" class="ctlRow">
             <span style="font-size:13.5px" id="recentFixLbl"></span>
-            <select id="recentFixTo" style="max-width:180px"></select>
+            <input list="classList" id="recentFixTo" autocomplete="off"
+              spellcheck="false" placeholder="type a class&hellip;"
+              style="max-width:180px">
             <button class="ghost" id="btnRecentMove">Move</button>
             <button class="ghost" id="btnRecentDelete" style="color:var(--red)">Delete</button>
             <button class="ghost" id="btnRecentCancel">Cancel</button>
@@ -1904,7 +1906,7 @@ $("btnScan").onclick = async () => {
       return;
     }
     await postJson("/api/dataset/scan",
-                   { label: $("dupScanSel").value || undefined });
+                   { label: classVal($("dupScanSel")) || undefined });
     scanRowState = {};          // fresh scan, fresh triage state
     renderScan._key = null;     // and a fresh list render
     scanCur = -1;
@@ -2086,7 +2088,7 @@ $("btnDupScan").onclick = async () => {
       return;
     }
     await postJson("/api/dataset/dupscan",
-                   { label: $("dupScanSel").value || undefined });
+                   { label: classVal($("dupScanSel")) || undefined });
     dupState = {};
     pollDupScan();
   } catch (e) { msg("dsMsg", e.message, false); }
@@ -2481,14 +2483,6 @@ $("dsGalleryClose").onclick = () => {
   dsCloseDetail();
 };
 
-function moveTargets(current) {
-  // every label the config allows, plus whatever already exists on disk
-  const targets = new Set([...STATE.stamp_labels,
-                           ...Object.keys(STATE.datasets.real.raw || {})]);
-  targets.delete(current);
-  return [...targets].sort();
-}
-
 // every class picker is an <input list="classList"> — type-to-filter
 // over one shared datalist (86 classes outgrew native selects, and a
 // hundred review cards no longer each carry a full option list)
@@ -2509,14 +2503,21 @@ function classKnown(v) {
 // create-on-confirm — typing a new name IS the new-class gesture
 async function dsResolveTarget(el) {
   const v = classVal(el);
-  if (!v) { msg("dsMsg", "type a destination class", false); return null; }
-  if (v !== "UNKNOWN" && !classKnown(v)) {
+  if (!v) { alert("Type a destination class first."); return null; }
+  if (v === "UNKNOWN") {
+    // moving to "UNKNOWN" would create a trainable CLASS by that name,
+    // not the set-aside pool — only the filing flows can set aside
+    alert("UNKNOWN is the set-aside pool, not a class — file cases there "
+          + "from batch or reject review instead of moving images.");
+    return null;
+  }
+  if (!classKnown(v)) {
     if (!confirm(`Create new class "${v}"?`)) return null;
     try {
       await postJson("/api/stamps/add", { name: v });
     } catch (e) {
       if (!/already|exists/i.test(e.message)) {
-        msg("dsMsg", e.message, false);
+        alert(e.message);
         return null;
       }
     }
@@ -2921,7 +2922,7 @@ function openRecentFix(i) {
   const r = colRecent[i];
   $("recentFix").style.display = "";
   $("recentFixLbl").textContent = `${r.stamp} #${r.index} →`;
-  $("recentFixTo").innerHTML = moveTargets(r.stamp).map(t => `<option>${t}</option>`).join("");
+  $("recentFixTo").value = "";
   msg("recentMsg", "");
   // expanded review image: the session thumb right away (it's the same
   // crop, just small), the full-size crop swapped in once fetched
@@ -2948,8 +2949,10 @@ $("btnRecentMove").onclick = async () => {
   const r = colRecent[recentFixIdx];
   if (!r) return;
   try {
+    const to = await dsResolveTarget($("recentFixTo"));
+    if (!to) return;
     const j = await postJson("/api/dataset/move",
-      { label: r.stamp, index: r.index, to: $("recentFixTo").value });
+      { label: r.stamp, index: r.index, to });
     const m = /^(.*) #(\d+)$/.exec(j.moved_to);
     if (m) { r.stamp = m[1]; r.index = +m[2]; }
     msg("recentMsg", `Moved to ${j.moved_to}`, true);
@@ -3157,7 +3160,8 @@ function renderBatchGroups() {
     const inp = $(`bgSel_${i}`);
     if (!inp) return;
     const k = g.cases.length ? kept[g.cases[0].n] : null;
-    if (k) inp.value = k;          // survivor choices win over defaults
+    if (k != null) inp.value = k;  // survivor choices win over defaults —
+                                   // including a deliberately CLEARED one
   });
 }
 
@@ -3230,7 +3234,11 @@ async function batchFile(i, discard, fileAll) {
       return;
     }
     body.stamp = v;
-    if (v !== "UNKNOWN" && !classKnown(v)) body.create = true;
+    if (v !== "UNKNOWN" && !classKnown(v)) {
+      if (!confirm(`Create new class "${v}" and file ${ns.length} `
+                   + `case(s) there?`)) return;
+      body.create = true;
+    }
   }
   try {
     const j = await postJson(`/api/runs/${batchRun}/cases/bulk_resolve`, body);
@@ -4543,8 +4551,16 @@ function renderTestSave(j) {
 
 $("btnTestSave").onclick = async () => {
   if (!lastTest || lastTest.synthetic) return;
+  // /api/save_pair creates directories for whatever it is handed — the
+  // picker must only pass REAL classes (typos and UNKNOWN refuse)
+  const v = classVal($("tsStamp"));
+  if (!v || v === "UNKNOWN" || !classKnown(v)) {
+    msg("tsMsg", v ? `no class named "${v}" — pick one from the list`
+                   : "pick a class first", false);
+    return;
+  }
   const fd = new FormData();
-  fd.append("stamp", $("tsStamp").value);
+  fd.append("stamp", v);
   if (typeof lastTest.a === "string") fd.append("frameA_b64", lastTest.a);
   else fd.append("frameA", lastTest.a);
   try {
