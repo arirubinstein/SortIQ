@@ -968,6 +968,8 @@
     <div style="display:flex; gap:10px; align-items:center; margin-bottom:6px">
       <h2 style="margin:0">Dataset</h2>
       <span style="flex:1"></span>
+      <button class="ghost" id="btnDsNewClass" style="padding:3px 10px"
+        title="create an empty class — collect or move images into it afterwards">New class…</button>
       <label class="muted" style="font-size:12px; display:flex; gap:5px;
              align-items:center; cursor:pointer; white-space:nowrap">
         <input type="checkbox" id="dsSortN" style="margin:0"> sort by count
@@ -1793,6 +1795,23 @@ function renderDatasetMgr() {
 }
 $("dsSortN").onchange = renderDatasetMgr;
 
+// the scan modal's Move must resolve the "+ new class…" sentinel before
+// handing a class name to scanResolve
+async function scanMoveChoice(i) {
+  const to = await dsResolveTarget($("scanMoveTo"));
+  if (to) scanResolve(i, to);
+}
+
+$("btnDsNewClass").onclick = async () => {
+  const name = (prompt("New class name:") || "").trim().toUpperCase();
+  if (!name) return;
+  try {
+    await postJson("/api/stamps/add", { name });
+    msg("dsMsg", `Created ${name} — move or collect images into it`, true);
+    refresh();
+  } catch (e) { msg("dsMsg", e.message, false); }
+};
+
 /* ------------------- families (variant groups for bins) ------------- */
 function renderFamilies() {
   const fams = STATE.families || {};
@@ -1955,12 +1974,13 @@ async function scanView(i) {
         ${j.head_crop ? `<img class="thumb" src="${j.head_crop}" style="max-width:200px">` : ""}
       </div>`;
     const opts = moveTargets(f.label).map(t =>
-      `<option ${t === f.pred ? "selected" : ""}>${t}</option>`).join("");
+      `<option ${t === f.pred ? "selected" : ""}>${t}</option>`).join("")
+      + `<option value="__NEW__">+ new class…</option>`;
     $("scanModalActions").innerHTML = `
       <button onclick="scanResolve(${i}, '${f.pred}')">Move to ${f.pred}</button>
       <label style="margin:0 0 0 10px">or</label>
       <select id="scanMoveTo" style="max-width:180px">${opts}</select>
-      <button class="ghost" onclick="scanResolve(${i}, $('scanMoveTo').value)">Move</button>
+      <button class="ghost" onclick="scanMoveChoice(${i})">Move</button>
       <button class="ghost danger" style="margin-left:auto"
               onclick="scanResolve(${i}, null)">Delete</button>`;
   } catch (e) {
@@ -2420,7 +2440,7 @@ function updateBulkBar() {
     : "Click a thumbnail to open it.";
   $("dsSelCount").textContent = `${dsSel.size} selected`;
   if (on && dsCur.label)
-    $("dsBulkTo").innerHTML = moveTargets(dsCur.label).map(t => `<option>${t}</option>`).join("");
+    $("dsBulkTo").innerHTML = moveOpts(dsCur.label);
 }
 $("dsMulti").onchange = () => {
   dsSel.clear();
@@ -2434,9 +2454,14 @@ async function dsBulk(action) {
       !confirm(`Delete ${dsSel.size} image(s) from ${dsCur.label}? This removes the raw photos permanently.`))
     return;
   try {
+    let to;
+    if (action === "move") {
+      to = await dsResolveTarget($("dsBulkTo"));
+      if (!to) return;
+    }
     const sent = [...dsSel];     // snapshot: cells can toggle mid-request
     const j = await postJson("/api/dataset/bulk", { label: dsCur.label,
-      indices: sent, action, to: action === "move" ? $("dsBulkTo").value : undefined });
+      indices: sent, action, to });
     msg("dsMsg", `${action === "move" ? "Moved" : "Deleted"} ${j.processed} image(s)`, true);
     dsExTouch(dsCur.label, sent);
     dsSel.clear();               // the selection was consumed by the action
@@ -2463,6 +2488,32 @@ function moveTargets(current) {
   return [...targets].sort();
 }
 
+// options for a move dropdown: every target plus "create one right here" —
+// the split workflow shouldn't detour through the Collect page
+function moveOpts(current) {
+  return moveTargets(current).map(t => `<option>${t}</option>`).join("")
+    + `<option value="__NEW__">+ new class…</option>`;
+}
+
+// resolve a move dropdown's choice; the sentinel prompts for a name and
+// creates the class on the spot ("already exists" counts as success —
+// moving into an existing class is exactly what the user asked for)
+async function dsResolveTarget(sel) {
+  if (sel.value !== "__NEW__") return sel.value;
+  const name = (prompt("New class name:") || "").trim().toUpperCase();
+  if (!name) return null;
+  try {
+    await postJson("/api/stamps/add", { name });
+  } catch (e) {
+    if (!/already|exists/i.test(e.message)) {
+      msg("dsMsg", e.message, false);
+      return null;
+    }
+  }
+  refresh();
+  return name;
+}
+
 // prev/next state for the detail modal: the class's full ordered index
 // list, so you can walk every image one by one (across pages) the way
 // the mislabel-scan modal walks its flagged list
@@ -2480,7 +2531,7 @@ async function dsDetail(label, index) {
     const next = pos >= 0 && pos < dsNav.indices.length - 1
       ? dsNav.indices[pos + 1] : null;
     const j = await api(`/api/dataset/pair?label=${encodeURIComponent(label)}&index=${index}`);
-    const opts = moveTargets(label).map(t => `<option>${t}</option>`).join("");
+    const opts = moveOpts(label);
     $("dsImgModal").style.display = "flex";
     $("dsDetail").innerHTML = `
       <h3 style="margin:0">${label} #${index}${j.a_sharpness ? ` <span class="muted">· sharpness ${j.a_sharpness}</span>` : ""}</h3>
@@ -2536,8 +2587,9 @@ function dsCloseDetail() {
 
 async function dsMove(label, index) {
   try {
-    const j = await postJson("/api/dataset/move",
-      { label, index, to: $("dsMoveTo").value });
+    const to = await dsResolveTarget($("dsMoveTo"));
+    if (!to) return;
+    const j = await postJson("/api/dataset/move", { label, index, to });
     msg("dsMsg", `Moved to ${j.moved_to}`, true);
     dsExTouch(label, [index]);
     dsNavAdvance(label, index);      // stay in the walk: next image up
