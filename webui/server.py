@@ -4267,10 +4267,19 @@ class RunManager:
                 # machine must not do.
                 from sorter.cs72 import cancel_wait
                 WAIT_LIMIT, FLUSH_WAITS, EMPTY_FEEDS = 8, 6, 4
+                # dry mode is no longer a one-way door: the wheel holds at
+                # most ~3 cases past the sensor, so if this many CONSECUTIVE
+                # flush cycles each deliver a real case, the tube is
+                # provably still feeding — the end-of-brass call was a
+                # false alarm (a delivery gap), and the run resumes full
+                # speed instead of walking the rest of the bowl at flush
+                # pace (field incident: 76 cases rode the slow tail)
+                DRY_RESUME = 6
                 waiting = 0
                 prev_slot = 0        # slot of the previous sort/prime (the
                                      # prime force-feeds at the park slot 0)
                 dry = False          # end-of-brass flush loop is running
+                dry_present = 0      # consecutive flush cases with brass
                 empty_left = EMPTY_FEEDS
                 flushed = 0          # cases counted while in DRY mode
                 sorted_n = 0         # local case counter; the writer
@@ -4405,6 +4414,23 @@ class RunManager:
                             self.state["end_reason"] = "out_of_brass"
                         break
                     empty_left = EMPTY_FEEDS      # real case: refill budget
+                    if dry:
+                        dry_present += 1
+                        if pipelined and dry_present >= DRY_RESUME:
+                            # brass is provably still flowing — reverse the
+                            # end-of-brass call. Safe re-entry: every flush
+                            # cycle leaves the firmware idle with the
+                            # previous case's slot self-queued, which is
+                            # exactly the arm target the drop-port case
+                            # needs on the next PFEED.
+                            dry = False
+                            waiting = 0
+                            with self.lock:
+                                self.state["flushed"] = flushed
+                            note(f"brass still flowing ({dry_present} "
+                                 f"consecutive flush cases) — false "
+                                 f"end-of-brass, resuming full speed "
+                                 f"after case {sorted_n}")
                     if pipelined and not dry:
                         # SS2 pipelined cycle: the photo is taken, so the
                         # machine can move — this feed's arm target is
@@ -4451,6 +4477,7 @@ class RunManager:
                             reply = "DONE"
                         elif outcome == "clean":
                             dry = True
+                            dry_present = 0
                             note(f"DRY/FLUSH MODE entered after case {sorted_n}")
                             transport.send(f"FLUSH:{prev_slot}:{slot}")
                             reply = sort_reply()
