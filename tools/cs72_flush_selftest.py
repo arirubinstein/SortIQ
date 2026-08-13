@@ -33,13 +33,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sorter.cs72 import Cs72Transport, PARK_SLOT, cancel_wait
-from sorter.cs72_sim import Cs72Sim, Cs72ForkSim, DelayedCase
+from sorter.cs72_sim import (Cs72Sim, Cs72ForkSim, DelayedCase,
+                             TimedCase)
 
 WAIT_LIMIT = 4      # matches webui/server.py
 FLUSH_FEEDS = 4     # PR #50/#52 budget
 FLUSH_WAITS = 3     # consecutive WAITINGs on a sort reply before flushing
 EMPTY_FEEDS = 4     # forced feeds for empty-camera photos: the cold-start
                     # walk-in and mid-wheel bubbles from collator hiccups
+DRY_RESUME = 6      # consecutive present flush cases that prove the tube
+                    # is still feeding -> reverse a false end-of-brass call
 
 
 def _rl(t, tries=8):
@@ -83,6 +86,7 @@ def drive(sim, strategy, slots_of, max_iters=500):
     counted, jams = [], 0
     end_reason, flushed = None, 0
     waiting, flush_left = 0, FLUSH_FEEDS
+    dry_present, resumes = 0, 0
     prev_slot = PARK_SLOT               # the prime feed's slot
     dry = False                         # current strategy's flush-loop mode
     empty_left = EMPTY_FEEDS
@@ -140,6 +144,11 @@ def drive(sim, strategy, slots_of, max_iters=500):
             break
         flush_left = FLUSH_FEEDS
         empty_left = EMPTY_FEEDS
+        if dry:
+            dry_present += 1
+            if strategy == "pipeline" and dry_present >= DRY_RESUME:
+                dry = False              # brass provably still flowing:
+                resumes += 1             # reverse the end-of-brass call
         slot = slots_of[case]
 
         if strategy == "pr53":
@@ -216,6 +225,7 @@ def drive(sim, strategy, slots_of, max_iters=500):
                     reply = "DONE"
                 elif outcome == "clean":
                     dry = True
+                    dry_present = 0
                     t.send(f"FLUSH:{prev_slot}:{slot}")
                     reply = _sort_reply(t)
                 else:
@@ -237,7 +247,7 @@ def drive(sim, strategy, slots_of, max_iters=500):
             raise ValueError(strategy)
 
     return {"counted": counted, "end_reason": end_reason, "jams": jams,
-            "flushed": flushed, "iters": it}
+            "flushed": flushed, "resumes": resumes, "iters": it}
 
 
 # --------------------------------------------------------------- assertions
@@ -735,6 +745,54 @@ def scenario_pipeline_guard():
     return errs + base_checks(sim, "pipe-guard")
 
 
+def scenario_pipeline_false_dry_resume():
+    """The field incident, replayed: a delivery gap long enough to enter
+    the flush loop, with plenty of brass still behind it (the gap case
+    lands during the dry-entry dance, exactly as in the 76-case field
+    run). Six consecutive present flush cases prove the tube is feeding;
+    the run reverses the call, resumes the pipelined cycle, and every
+    case still lands in its true slot."""
+    labels = [chr(ord("a") + i) for i in range(16)]
+    slots = {c: (i % 7) + 1 for i, c in enumerate(labels)}
+    hopper = labels[:5] + [TimedCase(labels[5], 6)] + labels[6:]
+    sim = Cs72ForkSim(hopper=hopper)
+    r = drive(sim, "pipeline", slots)
+    errs = base_checks(sim, "false-dry")
+    if misplaced(sim, slots):
+        errs.append(f"false-dry: misplaced {misplaced(sim, slots)}")
+    if r["resumes"] != 1:
+        errs.append(f"false-dry: expected 1 resume, got {r['resumes']} "
+                    f"(end={r['end_reason']}, flushed={r['flushed']})")
+    if len(sim.fell) != 16 or sim.wheel_cases():
+        errs.append(f"false-dry: {len(sim.fell)}/16 placed, wheel "
+                    f"{sim.wheel_cases()} (end={r['end_reason']})")
+    if r["end_reason"] != "out_of_brass":
+        errs.append(f"false-dry: end={r['end_reason']}")
+    return errs
+
+
+def scenario_pipeline_double_false_dry():
+    """Two separate delivery gaps in one bowl: enter the flush loop, prove
+    brass, resume — twice — and still end clean at the true end with every
+    case in its slot."""
+    labels = [chr(ord("a") + i) for i in range(24)]
+    slots = {c: (i % 7) + 1 for i, c in enumerate(labels)}
+    hopper = (labels[:4] + [TimedCase(labels[4], 6)]
+              + labels[5:14] + [TimedCase(labels[14], 6)] + labels[15:])
+    sim = Cs72ForkSim(hopper=hopper)
+    r = drive(sim, "pipeline", slots)
+    errs = base_checks(sim, "double-dry")
+    if misplaced(sim, slots):
+        errs.append(f"double-dry: misplaced {misplaced(sim, slots)}")
+    if r["resumes"] != 2:
+        errs.append(f"double-dry: expected 2 resumes, got {r['resumes']} "
+                    f"(end={r['end_reason']}, flushed={r['flushed']})")
+    if len(sim.fell) != 24 or sim.wheel_cases():
+        errs.append(f"double-dry: {len(sim.fell)}/24 placed, wheel "
+                    f"{sim.wheel_cases()}")
+    return errs
+
+
 class _JamAtFeed(Cs72ForkSim):
     """Fork sim that grinds an overtravel error on feed cycle N."""
 
@@ -833,6 +891,8 @@ SCENARIOS = [
     ("SS2: pipelined warm 10-case full placement", scenario_pipeline_warm_ten),
     ("SS2: pipelined cold 10-case with walk-in", scenario_pipeline_cold_ten),
     ("SS2: pf-without-slot guard refuses safely", scenario_pipeline_guard),
+    ("SS2: false end-of-brass reverses, placement true", scenario_pipeline_false_dry_resume),
+    ("SS2: two false dry spells in one bowl", scenario_pipeline_double_false_dry),
     ("SS2: jam recovery ≡ sequential (no queue slip)", scenario_pipeline_jam_equivalence),
     ("SS2: 200-run sequential≡pipelined fuzz", scenario_pipeline_equivalence_fuzz),
 ]
