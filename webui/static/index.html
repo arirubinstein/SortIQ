@@ -20,12 +20,18 @@
            background: var(--panel); border-bottom: 1px solid var(--line); }
   header h1 { font-size: 19px; margin: 0; color: var(--brass); }
   header .sub { color: var(--dim); font-size: 13px; }
-  nav { display: flex; gap: 4px; padding: 10px 22px 0; background: var(--panel);
-        border-bottom: 1px solid var(--line); }
-  nav button { background: none; border: none; border-bottom: 3px solid transparent;
-               color: var(--dim); font: inherit; font-weight: 600; padding: 8px 16px;
-               cursor: pointer; }
-  nav button.active { color: var(--text); border-color: var(--brass); }
+  nav { display: flex; align-items: center; padding: 10px 22px;
+        background: var(--panel); border-bottom: 1px solid var(--line); }
+  nav .seg { display: flex; gap: 2px; background: var(--bg);
+             border: 1px solid var(--line); border-radius: 9px; padding: 3px; }
+  nav .gap { flex: 1; }
+  nav button { background: none; border: none; border-radius: 7px;
+               color: var(--dim); font: inherit; font-weight: 600;
+               padding: 6px 15px; cursor: pointer; }
+  nav button.active { background: var(--brass); color: var(--bg);
+                      font-weight: 700; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
+  nav button:hover:not(.active) { color: var(--text); }
+  nav .seg.sys button { font-size: 13.5px; }
   main { padding: 20px 22px; max-width: 1180px; margin: 0 auto; }
   /* big monitors get the space: the tab layouts are flex rows that fill
      whatever main allows, so widening main is the whole feature. 1180px
@@ -572,14 +578,19 @@
 </div>
 
 <nav>
-  <button data-tab="collect" class="active">1 · Collect</button>
-  <button data-tab="train">2 · Train</button>
-  <button data-tab="dataset">3 · Dataset</button>
-  <button data-tab="test">4 · Test</button>
-  <button data-tab="run">5 · Sort</button>
-  <button data-tab="machine">Machine</button>
-  <button data-tab="fleet">Fleet</button>
-  <button data-tab="docs">Docs</button>
+  <div class="seg">
+    <button data-tab="collect" class="active">Collect</button>
+    <button data-tab="train">Train</button>
+    <button data-tab="dataset">Dataset</button>
+    <button data-tab="test">Test</button>
+    <button data-tab="run">Sort</button>
+  </div>
+  <span class="gap"></span>
+  <div class="seg sys">
+    <button data-tab="machine">Machine</button>
+    <button data-tab="fleet">Fleet</button>
+    <button data-tab="docs">Docs</button>
+  </div>
 </nav>
 <main>
 
