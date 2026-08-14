@@ -98,7 +98,6 @@
   .muted { color: var(--dim); font-size: 13px; }
   .msg { margin-top: 10px; font-size: 13.5px; min-height: 1.3em; }
   .msg.ok { color: var(--green); } .msg.err { color: var(--red); }
-  #discWrap { text-align: center; }
   svg text { fill: var(--text); font-family: inherit; }
   .flex1 { flex: 1 1 320px; min-width: 300px; }
   progress { width: 100%; height: 14px; accent-color: var(--brass); }
@@ -199,15 +198,39 @@
   #btnConConnect.faded, #btnConDisc.faded { opacity: .35; filter: saturate(.5); }
   #btnConConnect, #btnConDisc { transition: opacity .25s, filter .25s; }
   .liveWrap .ctlCol { flex: 0 1 300px; min-width: 260px; }
-  #binList { display: grid; gap: 10px;
-    grid-template-columns: repeat(var(--slots, 8), minmax(0, 1fr)); }
-  @media (max-width: 900px) {
-    #binList { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  #binList { display: grid; gap: 12px;
+    grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  @media (max-width: 1100px) {
+    #binList { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
   }
-  .binSlot { display: flex; flex-direction: column; gap: 8px; min-height: 130px;
-    border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
-    background: var(--panel2); }
+  .binSlot { display: flex; flex-direction: column; gap: 8px; min-height: 148px;
+    border: 1px solid var(--line); border-radius: 11px; padding: 12px 14px;
+    background: var(--panel2); transition: box-shadow .25s, border-color .25s; }
   .binSlot.um { border-color: var(--amber); }
+  .binSlot.of { border-color: var(--blue); }
+  .binSlot.drop { border-color: var(--brass);
+    box-shadow: 0 0 0 1px var(--brass), 0 0 22px rgba(212,169,79,.28); }
+  .binSlot .sgStats { font-size: 12px; color: var(--dim); min-height: 18px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .binSlot .sgFill { height: 4px; border-radius: 2px; background: var(--panel);
+    overflow: hidden; }
+  .binSlot .sgFill i { display: block; height: 100%; background: var(--brass); }
+  .binSlot.um .sgFill i { background: var(--amber); }
+  .binSlot .sgView { font-size: 12.5px; color: var(--brass); font-weight: 600;
+    cursor: pointer; }
+  .binSlot .sgView:hover { text-decoration: underline; }
+  #binList.locked .binAdd, #binList.locked .binRm { display: none; }
+  #sortBar { display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+    min-height: 44px; }
+  #sortBar .sgStat { display: flex; flex-direction: column; line-height: 1.15; }
+  #sortBar .sgStat b { font-size: 24px; }
+  #sortBar .sgStat span { font-size: 11px; color: var(--dim);
+    text-transform: uppercase; letter-spacing: .7px; }
+  #sortBar .sgRight { margin-left: auto; display: flex; gap: 10px;
+    align-items: center; }
+  #sortBar .sgLive { display: flex; gap: 8px; align-items: center;
+    font-weight: 600; font-size: 13.5px; }
+  #sortBar .sgLive .dot { width: 9px; height: 9px; border-radius: 50%; }
   .binSlot .binHead { display: flex; justify-content: space-between;
     align-items: center; font-weight: 600; }
   .binSlot .binChips { display: flex; flex-wrap: wrap; gap: 5px;
@@ -1160,7 +1183,7 @@
     </div>
     <div class="card" style="flex:0 1 380px; min-width:340px">
       <h2>Destination bin</h2>
-      <div id="discWrap"></div>
+      <div id="testBin" class="muted">Run a test to see where it lands.</div>
     </div>
   </div>
 </section>
@@ -1168,7 +1191,15 @@
 <!-- =============================== SORTING ============================== -->
 <!-- ================================ RUN ================================= -->
 <section id="run">
-  <!-- bins, full width in even vertical slots -->
+  <div class="card">
+    <div id="sortBar"></div>
+    <div class="msg" id="runMsg"></div>
+    <div id="runEndBanner" style="display:none; margin-top:8px; padding:10px 14px;
+         border:1px solid var(--brass); border-radius:8px; font-weight:600"></div>
+    <div id="runScore"></div>
+  </div>
+  <!-- the slot cards: assignment editor when idle, live dashboard while
+       sorting, report table-of-contents when finished -->
   <div class="card">
       <h2>Bins</h2>
       <label class="inline" style="display:flex; gap:6px; align-items:flex-start; font-size:12.5px; color:var(--dim); margin-bottom:8px">
@@ -1182,19 +1213,16 @@
       </div>
       <div id="binList"></div>
       <div class="muted" id="unassignedNote" style="margin-top:6px; font-size:12px"></div>
-      <div style="margin-top:10px; display:flex; gap:8px">
-        <button class="ghost" id="btnClearSlots">Clear slots</button>
-        <button class="ghost" id="btnResetCounters">Reset counters</button>
-      </div>
       <div class="msg" id="clMsg"></div>
   </div>
 
-  <!-- one card: controls + live feed side by side — start and watch, no scrolling -->
+  <!-- options + live feed; primary controls live in the top bar -->
   <div class="card">
-    <h2>Run the sorter</h2>
     <div class="liveWrap">
     <div class="ctlCol">
-    <div class="ctlRow" style="gap:14px; align-items:center; flex-wrap:wrap">
+    <details>
+    <summary style="font-weight:600; cursor:pointer">Run options</summary>
+    <div class="ctlRow" style="gap:14px; align-items:center; flex-wrap:wrap; margin-top:8px">
       <span id="runMachineChip" style="font-weight:600; font-size:13px">machine: checking…</span>
       <button class="ghost" id="btnRunConnect" style="display:none; padding:4px 12px">Connect</button>
     </div>
@@ -1224,13 +1252,15 @@
            title="each class earns its own bar from its exemplars; the runner-up margin is fixed — Acceptance above shifts all bars at once"
            >per-class bars + runner-up margin tune themselves</div>
     </div>
-    <div style="margin-top:14px; display:flex; gap:8px">
-      <button class="primary" id="btnRunStart">Start</button>
-      <button class="ghost faded" id="btnRunStop">Stop</button>
+    <div style="margin-top:12px; display:flex; gap:8px">
+      <button class="ghost" id="btnClearSlots">Clear slots</button>
+      <button class="ghost" id="btnResetCounters">Reset counters</button>
     </div>
-    <div class="msg" id="runMsg"></div>
-    <div id="runEndBanner" style="display:none; margin-top:8px; padding:10px 14px;
-         border:1px solid var(--brass); border-radius:8px; font-weight:600"></div>
+    <div style="display:none">
+      <button id="btnRunStart">Start</button>
+      <button id="btnRunStop">Stop</button>
+    </div>
+    </details>
     </div>
       <div class="caseCol">
         <h3 style="margin-top:0">Current case</h3>
@@ -1240,16 +1270,6 @@
         <h3 style="margin-top:0">Recent cases</h3>
         <div id="runRecent" class="muted">—</div>
       </div>
-    </div>
-  </div>
-
-  <!-- totals: counts + disc + score three across -->
-  <div class="card">
-    <h2>Totals</h2>
-    <div class="row" style="gap:28px; align-items:flex-start">
-      <div style="flex:0 1 240px"><div id="runTotals" class="muted">No run yet.</div></div>
-      <div style="flex:0 1 400px; text-align:center"><div id="runDisc"></div></div>
-      <div style="flex:1 1 280px"><div id="runScore"></div></div>
     </div>
   </div>
 
@@ -1574,7 +1594,6 @@ async function refresh() {
   if (refresh._model !== modelKey) { refresh._model = modelKey; dsExDrop(); }
   renderModelBar(); renderModelSelect(); classListSync();
   renderVisibleTabs();
-  if (!$("test").querySelector("#discWrap svg")) drawDisc($("discWrap"), null);
   const camOk = STATE.camera === "ok";
   $("camBox").style.display = camOk ? "" : "none";
   $("camPanels").style.display = camOk ? "" : "none";
@@ -4657,54 +4676,26 @@ function showResult(j) {
   $("cropHead").src = j.crop_head || "";
 
   renderTestSave(j);
-  drawDisc($("discWrap"), j.bin);
+  renderTestBin(j.bin);
 }
 
-/* --------------------------- bin disc SVG --------------------------- */
-function drawDisc(el, highlight, counts) {
-  const en = new Set(STATE.slots_enabled || STATE.bins.map((_, i) => i));
-  const entries = STATE.bins.map(binGroup).map((group, i) => ({
-    id: i,
-    label: en.has(i)
-      ? (group.map(binEntryLabel).join(" ") || "empty") : "off",
-    reject: group.includes("UNMATCHED"),
-    empty: !group.length,
-    disabled: !en.has(i),
-  }));
-  const n = entries.length, cx = 180, cy = 180, R = 128, r = 34;
-  // viewBox cropped to the drawn content (bins reach 180±162, +4px slack)
-  // so the graphic carries no dead margin of its own
-  let s = `<svg viewBox="14 14 332 332" width="100%" style="max-width:360px">`;
-  s += `<circle cx="${cx}" cy="${cy}" r="${R + 18}" fill="none" stroke="var(--line)" stroke-width="2"/>`;
-  s += `<circle cx="${cx}" cy="${cy}" r="26" fill="var(--panel2)" stroke="var(--line)"/>`;
-  s += `<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-size="11" fill="var(--dim)">disc</text>`;
-  entries.forEach((e, i) => {
-    const a = -Math.PI / 2 + (2 * Math.PI * i) / n;
-    const x = cx + R * Math.cos(a), y = cy + R * Math.sin(a);
-    const hot = highlight !== null && e.id === highlight;
-    const fill = hot ? (e.reject ? "var(--amber)" : "var(--green)") : "var(--panel2)";
-    const stroke = hot ? "#fff" : e.reject ? "var(--amber)" : "var(--line)";
-    s += `<circle cx="${x}" cy="${y}" r="${r}" fill="${fill}" stroke="${stroke}"
-           stroke-width="${hot ? 3 : 1.5}" ${e.disabled ? 'stroke-dasharray="2 4" opacity="0.25"'
-             : e.empty ? 'stroke-dasharray="4 3" opacity="0.55"' : ""}/>`;
-    s += `<text x="${x}" y="${y - 3}" text-anchor="middle" font-size="12" font-weight="700"
-           fill="${hot ? "#14171c" : "var(--text)"}">${e.id}</text>`;
-    const words = e.label.split(" ");
-    words.forEach((w, wi) => {
-      s += `<text x="${x}" y="${y + 9 + wi * 10}" text-anchor="middle" font-size="8.5"
-             fill="${hot ? "#14171c" : "var(--dim)"}">${w}</text>`;
-    });
-    const cnt = counts && counts[String(e.id)];
-    if (cnt) s += `<text x="${x}" y="${y + 9 + words.length * 10}" text-anchor="middle"
-                  font-size="9.5" font-weight="700"
-                  fill="${hot ? "#14171c" : "var(--brass)"}">${cnt}</text>`;
-  });
-  s += `</svg>`;
-  el.innerHTML = s;
+function renderTestBin(bin) {
+  if (bin == null) { $("testBin").textContent = "\u2014"; return; }
+  const holds = binGroup(STATE.bins[bin] || []);
+  const label = holds.includes("UNMATCHED") ? "the catch-all"
+    : holds.includes("OVERFLOW") ? "classified \u00b7 no bin"
+    : holds.map(binEntryLabel).join(", ") || "nothing mapped";
+  $("testBin").innerHTML = `
+    <div style="display:flex; gap:14px; align-items:center">
+      <span style="font-size:44px; font-weight:800; color:var(--bg);
+        background:var(--brass); border-radius:12px; padding:2px 22px">${bin}</span>
+      <div><div style="font-weight:600">slot ${bin}</div>
+        <div class="muted" style="font-size:12.5px">holds: ${label}</div></div>
+    </div>`;
 }
 
-/* ---------------------------- bins & floors ------------------------- */
 let lastRunStatus = null;
+
 function binCountFor(i) {
   const bc = (lastRunStatus && lastRunStatus.bin_counts) || {};
   return bc[i] || bc[String(i)] || 0;
@@ -4746,10 +4737,19 @@ function renderBins() {
   STATE.bins.forEach((group, i) => {
     if (!en.has(i)) return;      // disabled slots: no tray, no editor
     const isUM = group.includes("UNMATCHED");
+    const isOF = group.includes("OVERFLOW");
     const div = document.createElement("div");
-    div.className = "binSlot" + (isUM ? " um" : "");
+    div.className = "binSlot" + (isUM ? " um" : isOF ? " of" : "");
+    div.dataset.bin = i;
     const chips = group.map(s => s === "UNMATCHED"
       ? `<span class="pill bad" style="flex:none">UNMATCHED</span>`
+      : s === "OVERFLOW"
+      ? `<span class="pill" style="flex:none; color:var(--blue);
+           border:1px solid var(--blue); border-radius:999px; padding:1px 10px"
+           title="confident reads whose class has no bin land here — the
+           UNMATCHED tray then holds only true rejects">OVERFLOW
+           <a class="binRm" data-slot="${i}" data-stamp="OVERFLOW"
+           style="cursor:pointer; margin-left:5px; opacity:.7">×</a></span>`
       : s.startsWith(FAM)
       ? `<span class="chip sel" style="cursor:default; border-color:var(--brass); color:var(--brass)"
            title="${famMembers(s).join(", ") || "empty family"}">${famName(s)}
@@ -4768,15 +4768,23 @@ function renderBins() {
       free.map(s => `<option value="${s}">${s}${covered.has(s)
         ? " (in a family)" : ""}</option>`).join("") +
       (!isUM && !group.length
-        ? `<option value="__UM__">UNMATCHED (make catch-all)</option>` : "");
+        ? `<option value="__UM__">UNMATCHED (make catch-all)</option>` : "") +
+      (!isUM && !isOF && !STATE.bins.some(g => g.includes("OVERFLOW"))
+        ? `<option value="__OF__">OVERFLOW (classified · no bin)</option>` : "");
     div.innerHTML = `<div class="binHead"><span>Bin ${i}</span>
         <span class="n" id="binCount${i}" title="sorted this run">${binCountFor(i)}</span></div>
       <div class="binChips">${chips}</div>
+      <div class="sgStats" id="sgStats${i}"></div>
+      <div class="sgFill"><i id="sgFill${i}" style="width:0"></i></div>
+      <div class="sgView" id="sgView${i}" style="display:none"></div>
       <select class="binAdd" data-slot="${i}">
         <option value="">+ add…</option>${addOpts}
       </select>`;
     list.appendChild(div);
   });
+  list.classList.toggle("locked",
+    !!(lastRunStatus && lastRunStatus.running));
+  renderBinStats();
   list.querySelectorAll(".binRm").forEach(a => a.onclick = () => {
     const g = STATE.bins[+a.dataset.slot];
     g.splice(g.indexOf(a.dataset.stamp), 1);
@@ -4791,6 +4799,12 @@ function renderBins() {
         if (k >= 0) g.splice(k, 1);
       });
       STATE.bins[i].push("UNMATCHED");
+    } else if (sel.value === "__OF__") {
+      STATE.bins.forEach(g => {
+        const k = g.indexOf("OVERFLOW");
+        if (k >= 0) g.splice(k, 1);
+      });
+      STATE.bins[i].push("OVERFLOW");
     } else STATE.bins[i].push(sel.value);
     saveBins();
   });
@@ -4804,12 +4818,98 @@ $("flStamp").oninput = () =>
 $("flStamp").onchange = () => saveFloors();
 $("flSharp").onchange = () => saveFloors();
 
+// per-card live/finished layer: counts, class breakdowns, fill bars,
+// and (when a report is loaded) the view-cases links that make the grid
+// the report's table of contents
+function renderBinStats() {
+  const s = renderBins._live || lastRunStatus;
+  const bc = (s && s.bin_counts) || {};
+  const bsc = (s && s.bin_stamp_counts) || {};
+  const maxC = Math.max(1, ...Object.values(bc));
+  const finished = !!(s && !s.running && s.run_id && pollRun._repStats);
+  (STATE.bins || []).forEach((g, i) => {
+    const st = $(`sgStats${i}`);
+    if (!st) return;
+    const cnt = +bc[String(i)] || 0;
+    const parts = Object.entries(bsc[String(i)] || {})
+      .sort((a, b) => b[1] - a[1]);
+    st.textContent = parts.length
+      ? parts.slice(0, 3).map(([c, n2]) => `${c} ${n2}`).join(" · ")
+        + (parts.length > 3 ? ` · +${parts.length - 3} more` : "")
+      : "";
+    const f = $(`sgFill${i}`);
+    if (f) f.style.width = cnt ? Math.max(4, 100 * cnt / maxC) + "%" : "0";
+    const v = $(`sgView${i}`);
+    if (v) {
+      const isUM = binGroup(g).includes("UNMATCHED");
+      if (finished && (cnt || isUM)) {
+        v.style.display = "";
+        v.textContent = isUM ? "review rejects ›" : "view cases ›";
+        v.onclick = isUM
+          ? () => { $("btnRevLoad").click();
+                    $("revGrid").scrollIntoView({ behavior: "smooth" }); }
+          : () => { const el = $(`repBin${i}`);
+                    if (el) el.scrollIntoView({ behavior: "smooth",
+                                                block: "start" }); };
+      } else v.style.display = "none";
+    }
+  });
+}
+
+// the top bar wears the machine's state: Start when idle, live stats +
+// Stop while sorting, the tally + report actions when finished
+function renderSortBar(s) {
+  const bar = $("sortBar");
+  if (!bar) return;
+  const rs = pollRun._repStats;
+  if (s && s.running) {
+    bar.innerHTML = `
+      <div class="sgStat"><b>${s.sorted}</b><span>sorted</span></div>
+      <div class="sgStat"><b style="color:var(--amber)">${s.rejected}</b><span>unmatched</span></div>
+      <div class="sgStat"><b>${s.jams}</b><span>jams</span></div>
+      <div class="sgStat"><b>${s.rate}<span style="font-size:13px; color:var(--dim)">/s</span></b><span>rate</span></div>
+      <div class="sgRight">
+        <div class="sgLive" style="color:var(--green)">
+          <span class="dot" style="background:var(--green); box-shadow:0 0 8px var(--green)"></span>
+          SORTING · ${s.run_id}</div>
+        <button class="ghost" onclick="$('btnRunStop').click()">■ Stop</button>
+      </div>`;
+  } else if (s && s.run_id) {
+    const extra = rs ? `
+      <div class="sgStat"><b>${rs.dur}</b><span>duration</span></div>
+      <div class="sgStat"><b>${rs.spc}<span style="font-size:13px; color:var(--dim)">s</span></b><span>per case</span></div>
+      <div class="sgStat"><b>${rs.medconf}</b><span>median conf</span></div>` : "";
+    bar.innerHTML = `
+      <div class="sgStat"><b>${s.sorted}</b><span>sorted</span></div>
+      <div class="sgStat"><b style="color:var(--amber)">${s.rejected}</b><span>unmatched</span></div>
+      <div class="sgStat"><b>${s.jams}</b><span>jams</span></div>${extra}
+      <div class="sgRight">
+        <span class="muted" style="font-size:12.5px">${s.run_id} · finished</span>
+        ${s.rejected ? `<button class="ghost" style="color:var(--amber)"
+          onclick="$('btnRevLoad').click(); $('revGrid').scrollIntoView({behavior:'smooth'})"
+          >Review rejects (${s.rejected})</button>` : ""}
+        <button class="primary" onclick="$('btnRunStart').click()">▶ Sort again</button>
+      </div>`;
+  } else {
+    bar.innerHTML = `
+      <span style="font-weight:600; font-size:17px">Sort</span>
+      <span class="muted" style="font-size:12.5px">assign the bins below, load brass, go</span>
+      <div class="sgRight">
+        <div class="sgLive" style="color:var(--dim)">
+          <span class="dot" style="background:var(--dim)"></span> IDLE</div>
+        <button class="primary" onclick="$('btnRunStart').click()">▶ Start</button>
+      </div>`;
+  }
+}
+
 function updateUnassignedNote() {
   const assigned = new Set(STATE.bins.flatMap(binClasses)
     .filter(s => s !== "UNMATCHED"));
   const unassigned = STATE.stamp_labels.filter(s => !assigned.has(s));
+  const ofBin = STATE.bins.findIndex(g => binGroup(g).includes("OVERFLOW"));
+  const dest = ofBin >= 0 ? `the OVERFLOW bin (${ofBin})` : "UNMATCHED";
   $("unassignedNote").textContent = unassigned.length
-    ? `Not in any bin (will be sorted to UNMATCHED): ${unassigned.sort().join(", ")}`
+    ? `Not in any bin (will be sorted to ${dest}): ${unassigned.sort().join(", ")}`
     : "Every headstamp has a bin.";
 }
 
@@ -4817,7 +4917,8 @@ async function saveBins() {
   const bins = STATE.bins.map(binGroup);
   if (bins.filter(g => g.includes("UNMATCHED")).length !== 1)
     return msg("clMsg", "one slot must be UNMATCHED (the catch-all)", false);
-  const named = bins.flat().filter(s => s !== "UNMATCHED");
+  const named = bins.flat()
+    .filter(s => s !== "UNMATCHED" && s !== "OVERFLOW");
   if (named.length !== new Set(named).size)
     return msg("clMsg", "a headstamp can only be in one slot", false);
   try {
@@ -4896,6 +4997,9 @@ $("btnRunStart").onclick = async () => {
       auto_assign: $("runAuto").checked });
     msg("runMsg", "");
     await pollRun();                 // pick up running=true first,
+    runTimer = setTimeout(pollRun, 900);  // and once more — the run
+                                     // thread may flip running a beat
+                                     // after the start call returns
     updateRunChip();                 // so the chip flips immediately
   } catch (e) { msg("runMsg", e.message, false); }
 };
@@ -4923,13 +5027,7 @@ async function pollRun() {
   lastRunStatus = s;
   if (s.error) msg("runMsg", s.error, false);
 
-  $("runTotals").innerHTML = s.run_id ? `
-    <div class="gate"><span>Sorted</span><b>${s.sorted}</b></div>
-    <div class="gate"><span>Rejected</span><b>${s.rejected}</b></div>
-    <div class="gate"><span>Jams recovered</span><b>${s.jams}</b></div>
-    <div class="gate"><span>Speed</span><b>${s.rate} cases/s</b></div>
-    <div class="muted" style="margin-top:4px">${s.run_id}${s.running ? " — running" : s.finished ? " — finished" : ""}</div>`
-    : `<span class="muted">No run yet.</span>`;
+  renderSortBar(s);
 
   // recognized (ok / no_bin_mapping) vs a true reject (couldn't identify)
   const classified = r => r.reason === "ok" || r.reason === "no_bin_mapping";
@@ -4999,8 +5097,17 @@ async function pollRun() {
     }
   }
 
-  if (runVisible)
-    drawDisc($("runDisc"), last ? last.bin : null, s.bin_counts || {});
+  if (runVisible) {
+    document.querySelectorAll("#binList .binSlot.drop")
+      .forEach(el => el.classList.remove("drop"));
+    if (s.running && last) {
+      const el = document.querySelector(`#binList [data-bin="${last.bin}"]`);
+      if (el) el.classList.add("drop");
+    }
+    renderBins._live = s;              // cards read live counts from here
+    $("binList").classList.toggle("locked", !!s.running);
+    renderBinStats();
+  }
 
   $("runScore").innerHTML = s.score ? `
     <h3>Ground-truth score (sim)</h3>
@@ -5115,7 +5222,7 @@ async function loadReport(runId) {
       // a scroll-stopping banner, not a small h3: each bin section
       // starts with a brass-edged band naming the bin and its mapping
       const head = `
-        <div style="margin-top:26px; padding:10px 14px; background:var(--brass);
+        <div id="repBin${b}" style="margin-top:26px; padding:10px 14px; background:var(--brass);
              border-radius:7px; color:var(--bg);
              display:flex; gap:12px; align-items:baseline; flex-wrap:wrap">
           <span style="font-size:18px; font-weight:800;
@@ -5153,6 +5260,17 @@ async function loadReport(runId) {
         ${binRows}</table>
       <div class="muted" style="margin:6px 0 2px">${reasonRow}</div>
       ${grids}`;
+    // the top bar's finished-state stats ride the report data
+    const confs = j.cases.map(c => c.conf).filter(c => c != null).sort((a, b) => a - b);
+    const dur = j.duration_s;
+    pollRun._repStats = {
+      dur: dur ? (dur >= 3600 ? `${Math.floor(dur / 3600)}h ${Math.floor(dur % 3600 / 60)}m`
+                 : `${Math.floor(dur / 60)}m ${Math.round(dur % 60)}s`) : "—",
+      spc: dur && j.total ? (dur / j.total).toFixed(2) : "—",
+      medconf: confs.length ? Math.round(confs[confs.length >> 1] * 100) + "%" : "—",
+    };
+    if (lastRunStatus) renderSortBar(lastRunStatus);
+    renderBinStats();
     return true;
   } catch (e) { msg("revMsg", e.message, false); return false; }
 }
