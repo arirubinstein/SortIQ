@@ -11,7 +11,9 @@ models dir IS the decider (the "shadow" name survives from the campaign
 that proved it as a logged second opinion before it became the
 decider). See tools/build_gallery.py for the gallery format.
 """
+import hashlib
 import json
+import os
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -68,7 +70,24 @@ class EmbedClassifier:
         # trusting cosine, which this embedding saturates within a class
         self.all_path = ([str(p) for p in g["g_all_path"]]
                          if "g_all_path" in g else None)
+        # bank reuse plumbing: every crop's vector is in the bank, so
+        # dataset scans can skip the ~110ms embed per image when the
+        # bank is trustworthy — same model (digest) and unchanged file
+        self.all_sig = ([str(s) for s in g["g_all_sig"]]
+                        if "g_all_sig" in g else None)
+        self.all_idx = ({p: i for i, p in enumerate(self.all_path)}
+                        if self.all_path else {})
+        self._crops_sig_cache = {}
+        self.gallery_mtime = os.path.getmtime(gallery_path)
+        try:
+            with open(model_path, "rb") as f:
+                self.model_md5 = hashlib.md5(f.read()).hexdigest()
+        except OSError:
+            self.model_md5 = None
         self.meta = json.loads(str(g["meta"])) if "meta" in g else {}
+        self.bank_reusable = (self.model_md5 is not None
+                              and self.model_md5
+                              == self.meta.get("model_digest"))
         self.tau = float(self.meta.get("tau", 0.85))
         # near-tie guard: BLAZER/SPEER share a font and differ only in
         # four letters — an untrained-on look-alike can edge the true
@@ -124,7 +143,51 @@ class EmbedClassifier:
         k-center picker loves outliers, and a mislabeled image is its
         class's biggest outlier, so mislabels tend to BE exemplars and
         would otherwise self-match at ~1.0 and hide from the scan."""
-        q = self.embed(img_bgr)
+        return self.predict_vec(self.embed(img_bgr), exclude_path)
+
+    def bank_vec(self, rel_path, crop_file=None):
+        """The banked vector for a dataset crop ("CLASS/name.png"), or
+        None when it can't be trusted: bank built by a different model,
+        path unknown, or the file changed since the gallery was built.
+        A miss costs the caller one live embed — never correctness."""
+        if not (self.bank_reusable and self.all_vec is not None):
+            return None
+        i = self.all_idx.get(rel_path)
+        if i is None:
+            return None
+        if crop_file is not None:
+            try:
+                st = crop_file.stat()
+            except OSError:
+                return None
+            sig = f"{st.st_size}:{int(st.st_mtime)}"
+            if not (self.all_sig is not None and self.all_sig[i] == sig):
+                # not the build that banked it. A gallery built on
+                # another machine (trainer push) is still trusted for
+                # crops that PREDATE it — but only when the imaging
+                # signature it was built under matches this machine's
+                # (an imaging reshape between build and install would
+                # otherwise validate vectors of the old-look crops)
+                if st.st_mtime > self.gallery_mtime:
+                    return None
+                want = self.meta.get("crops_sig")
+                if not want:
+                    return None
+                sig_p = crop_file.parent.parent / ".crops_sig"
+                cur = self._crops_sig_cache.get(sig_p)
+                if cur is None:
+                    try:
+                        cur = sig_p.read_text()
+                    except OSError:
+                        cur = ""
+                    self._crops_sig_cache[sig_p] = cur
+                if cur != want:
+                    return None
+        return self.all_vec[i]
+
+    def predict_vec(self, q, exclude_path=None):
+        """predict() minus the embed — for callers that already hold the
+        query vector (dataset scans reading the gallery bank)."""
         sims = self.g_vec @ q
         if exclude_path is not None and self.g_path is not None:
             for k, pth in enumerate(self.g_path):

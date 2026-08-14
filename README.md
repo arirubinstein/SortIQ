@@ -46,6 +46,10 @@ as 3 photos).
   step on one page, including the recommended-hardware shopping list.
 - **Using the app:** [docs/USER_MANUAL.md](docs/USER_MANUAL.md) — the
   illustrated user manual, tab by tab, with screenshots from a live machine.
+- **Getting to 99%+:** [docs/TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md) —
+  how to structure classes so the model sorts with confidence: split
+  visual variants, group them with families for the bins, keep the
+  dataset clean with the scan loop, and know when to retrain.
 - **Set up the machine (Pi):** [docs/PI_SETUP.md](docs/PI_SETUP.md) — flash
   a card, run `tools/pi_deploy.sh`, plug in the board and camera.
 - **Set up the trainer PC:** [docs/TRAINER_SETUP.md](docs/TRAINER_SETUP.md)

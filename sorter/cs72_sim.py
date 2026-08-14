@@ -55,6 +55,18 @@ class DelayedCase:
         self.polls = polls
 
 
+class TimedCase:
+    """A hopper entry that arrives after `polls` readline polls once it
+    reaches the hopper head — REGARDLESS of gate state. Models a collator
+    that keeps delivering while the run has already concluded end-of-brass
+    (the false-dry field incident); DelayedCase can't express that, since
+    it only counts down while the gate is dry."""
+
+    def __init__(self, label, polls):
+        self.label = label
+        self.polls = polls
+
+
 class Cs72Sim:
     """The CS7.2 board + wheel + collator, at command/event granularity."""
 
@@ -83,6 +95,7 @@ class Cs72Sim:
         self.drift_events = []    # (context, arm, qPos1) — must stay empty
         self._out = collections.deque()
         self._delay_pending = None      # DelayedCase counting down to the nest
+        self._timed_pending = None      # TimedCase counting down to the nest
         self._refill_nest()
         self._out.append("Ready")
 
@@ -113,6 +126,7 @@ class Cs72Sim:
                 self._command(line)
 
     def readline(self, timeout=None):
+        self._tick_timed_case()         # collator keeps delivering
         if self._out:
             return self._out.popleft()
         if self.FeedScheduled and not self._ready_to_feed():
@@ -247,7 +261,21 @@ class Cs72Sim:
         if isinstance(nxt, DelayedCase):
             self._delay_pending = nxt    # counts down in readline polls
             return
+        if isinstance(nxt, TimedCase):
+            self._timed_pending = nxt    # counts down on EVERY poll
+            return
         self.nest = self.hopper.popleft()
+
+    def _tick_timed_case(self):
+        d = self._timed_pending
+        if d is None:
+            return
+        d.polls -= 1
+        if d.polls <= 0:
+            self.hopper.popleft()
+            self._timed_pending = None
+            self.nest = d.label
+            self._pump()                 # the arrival may unblock a feed
 
     def _tick_delayed_case(self):
         d = self._delay_pending

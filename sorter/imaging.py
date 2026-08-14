@@ -153,9 +153,29 @@ def _head_contour(img):
     return best
 
 
+CASE_MIN_DISC_BRIGHTNESS = 40    # empty-nest phantom discs read ~12; the
+                                 # darkest real case in a 250-frame sweep
+                                 # read 66 (median 114) — 40 splits both
+                                 # ways with margin
+
+
 def case_present(img):
-    """True when a case-head-sized bright disc is in the scene."""
-    return _head_contour(img) is not None
+    """True when a case-head-sized bright disc is in the scene.
+
+    Otsu is relative, so a sharply focused EMPTY nest can still yield a
+    round contour (the pocket itself) — which produced blank phantom
+    captures at run start and end. A real case head is lit metal: the
+    disc must also be absolutely bright, not just the brightest thing
+    in a dark scene. find_head stays permissive on purpose — cropping a
+    real case must never get stricter."""
+    best = _head_contour(img)
+    if best is None:
+        return False
+    x, y, r = best
+    g = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    mask = np.zeros(g.shape, np.uint8)
+    cv2.circle(mask, (x, y), max(int(r * 0.8), 1), 255, -1)
+    return float(cv2.mean(g, mask)[0]) >= CASE_MIN_DISC_BRIGHTNESS
 
 
 def find_head(img):

@@ -57,12 +57,16 @@ photos that teach the model the most. Each of those cards also explains
 *why* the model hesitated: "FC 98% **vs R-P 94%**" means the winner was
 confident but a look-alike class sat too close to auto-file.
 
-**A note on variant classes:** only split a
-headstamp into variants (e.g. `FC` vs `FC DOTS`) if the variants look
-*structurally* different and you'd want them in different bins. Subtle
-splits — same stamp, slightly different font — divide the model's vote
-between them and cases end up rejected as "ambiguous." Merging such a pair
-(Dataset tab → Rename onto the other) recovers the accuracy instantly.
+**A note on variant classes:** if a headstamp arrives in visibly
+different dies (`FC` plain vs `FC DOTS` vs `FC DIAMONDS`), give each
+look its **own class** — a variant hiding inside its parent class
+matches at coin-flip margins, while a split class matches decisively
+after the next retrain. Then group the variants into a **family**
+(Dataset tab) and assign the family to a bin: they sort together
+physically, and a close call between two family members headed to the
+same bin is accepted rather than rejected as ambiguous. The full
+doctrine, including when a split is worth it and how to keep classes
+clean: [TRAINING_GUIDE.md](TRAINING_GUIDE.md).
 
 ## Camera setup
 
@@ -90,6 +94,12 @@ the exemplars match what the camera now sees.
 ---
 
 ## 2 · Train — on your trainer PC
+
+> **How you structure your classes matters more than how long you
+> train.** [TRAINING_GUIDE.md](TRAINING_GUIDE.md) covers the doctrine:
+> split every visually distinct variant into its own class, rejoin
+> them with families for the bins, and keep the dataset clean with the
+> scan loop. Ten minutes of reading that pays for itself in margins.
 
 The Pi deliberately doesn't train (it's an inference machine — no
 TensorFlow). Training runs on the trainer: the same SortIQ app running
@@ -214,7 +224,9 @@ sorting from 3 photos with no retraining at all.
   app.
 - **Rebuild gallery** — re-picks every class's exemplars from the current
   photos and pins. Run it after a relabeling session, after emptying the
-  tray, or after big captures; it takes a few minutes.
+  tray, or after big captures. Unchanged photos reuse their stored
+  vectors, so rebuilds finish in seconds — only a model install (new
+  vector space) or an imaging change pays the full price once.
 - **Scan for mislabels** — the decider second-guesses every stored
   image, exactly the way live sorting reads a case — with one twist:
   each image's own gallery seat is masked while it's judged, so a
@@ -225,8 +237,10 @@ sorting from 3 photos with no retraining at all.
   the wrong folder mid-session — **View** jumps straight to the image so
   you can Move or Delete it. Low-confidence rows are usually just hard
   images (worn stamps, glare); leave them unless the photo agrees.
-  Runs in the background for a few minutes on the machine; scan again
-  after big collection sessions and before retraining.
+  The scan reads stored vectors, so the whole dataset checks in
+  seconds — run it freely after big collection sessions and before
+  retraining, and re-scan after fixing (mislabels can shelter each
+  other; a clean dataset scans clean twice).
 - **Scan for duplicates** — finds repeats of the *same physical case*
   (double-saves, the same brass re-run through batch capture) that
   inflate class counts without adding variety. Two stages: the
@@ -243,6 +257,10 @@ sorting from 3 photos with no retraining at all.
 ## 4 · Test — one case, every detail
 
 ![Test tab](img/test.png)
+
+**Feed next case** runs one feed cycle and seats the next case under
+the camera, so single-case checks are a self-contained loop right on
+this page: feed, classify, feed again — no run, no other tab.
 
 Feed a case (or upload an image) and see the entire decision the way the
 run loop makes it: every gate (sharpness, class bar, runner-up margin,
@@ -311,6 +329,15 @@ mislabeled images get caught.
   live here.
 
 ## Running more than one machine
+
+The **Fleet** tab (on every machine and trainer) is the collective
+view: one card per known machine — name, active model, camera/board
+health, a live line while it captures or sorts, and its build. Click a
+name to open that machine's own page; **Scan for machines** finds
+peers, and **Update from here** brings a machine on an older build up
+to the one you're browsing. The page you're on does the polling, so
+the view works from any phone or PC with no trainer involved, and only
+while the tab is open.
 
 Each machine is self-contained — its own address, name, dataset, and
 model — and one trainer PC serves them all. Four rules keep a fleet sane:

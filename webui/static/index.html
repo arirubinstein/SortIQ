@@ -45,7 +45,7 @@
   .msGrid > div { display: flex; flex-direction: column; }
   .msGrid > div > label { flex: 1; }
   .airField.off { opacity: .45; }
-  select, input[type=text], input[type=number] {
+  select, input[type=text], input[type=number], input[list] {
     background: var(--panel2); color: var(--text); border: 1px solid var(--line);
     border-radius: 6px; padding: 7px 10px; font: inherit; width: 100%; }
   button.primary { background: var(--brass); color: #14171c; border: none;
@@ -247,7 +247,7 @@
              border-radius: 8px; padding: 10px; }
   .revCard img { width: 100%; border-radius: 6px; }
   .revCard .why { color: var(--amber); font-size: 12.5px; margin: 6px 0; }
-  .revCard select { margin-bottom: 6px; }
+  .revCard select, .revCard input[list] { margin-bottom: 6px; }
   #conLog { height: 460px; overflow-y: auto; background: var(--panel2);
     border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
     font-size: 12.5px; margin: 0; }
@@ -531,11 +531,13 @@
   <button data-tab="test">4 · Test</button>
   <button data-tab="run">5 · Sort</button>
   <button data-tab="machine">Machine</button>
+  <button data-tab="fleet">Fleet</button>
   <button data-tab="docs">Docs</button>
 </nav>
 <main>
 
 <!-- ============================== COLLECT ============================== -->
+<datalist id="classList"></datalist>
 <section id="collect" class="active">
   <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px">
     <div class="viewToggle">
@@ -608,7 +610,9 @@
           </div>
           <div id="recentFix" style="display:none; margin-top:10px" class="ctlRow">
             <span style="font-size:13.5px" id="recentFixLbl"></span>
-            <select id="recentFixTo" style="max-width:180px"></select>
+            <input list="classList" id="recentFixTo" autocomplete="off"
+              spellcheck="false" placeholder="type a class&hellip;"
+              style="max-width:180px">
             <button class="ghost" id="btnRecentMove">Move</button>
             <button class="ghost" id="btnRecentDelete" style="color:var(--red)">Delete</button>
             <button class="ghost" id="btnRecentCancel">Cancel</button>
@@ -644,7 +648,9 @@
         <b id="batchExcCount" style="color:var(--brass)"></b>
         <span class="muted" style="font-size:12px">pulled out — file them to
         their real class:</span>
-        <select id="batchExcSel" style="max-width:200px"></select>
+        <input list="classList" id="batchExcSel" autocomplete="off"
+               spellcheck="false" placeholder="type a class&hellip;"
+               style="max-width:200px">
         <button class="ghost" id="btnBatchExcFile">File</button>
         <button class="ghost danger" id="btnBatchExcDiscard">Discard</button>
       </div>
@@ -901,6 +907,27 @@
   </div>
 </section>
 
+<!-- =============================== FLEET ================================ -->
+<section id="fleet">
+  <div class="card">
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:6px">
+      <h2 style="margin:0">Fleet</h2>
+      <span style="flex:1"></span>
+      <button class="ghost" id="btnFleetScan">Scan for machines</button>
+    </div>
+    <div class="muted" style="margin-bottom:10px">
+      Every SortIQ machine this one knows about, polled live while this
+      tab is open. Click a name to open that machine's own page; a
+      grayed card means it didn't answer. "Update from here" brings a
+      machine running an older build up to this one's code.
+    </div>
+    <div id="fleetCards" style="display:grid; gap:12px;
+         grid-template-columns:repeat(auto-fill, minmax(300px, 1fr))"></div>
+    <div id="fleetPeers" class="muted" style="margin-top:10px; font-size:12px"></div>
+    <div class="msg" id="fleetMsg"></div>
+  </div>
+</section>
+
 <!-- =============================== DATASET ============================== -->
 <section id="dataset">
   <div class="card" id="trayCard" style="display:none">
@@ -946,6 +973,8 @@
     <div style="display:flex; gap:10px; align-items:center; margin-bottom:6px">
       <h2 style="margin:0">Dataset</h2>
       <span style="flex:1"></span>
+      <button class="ghost" id="btnDsNewClass" style="padding:3px 10px"
+        title="create an empty class — collect or move images into it afterwards">New class…</button>
       <label class="muted" style="font-size:12px; display:flex; gap:5px;
              align-items:center; cursor:pointer; white-space:nowrap">
         <input type="checkbox" id="dsSortN" style="margin:0"> sort by count
@@ -1001,8 +1030,10 @@
       dataset for housekeeping. Rebuilds always cover everything.
     </div>
     <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-      <select id="dupScanSel" style="max-width:140px; padding:2px 6px"
-              title="scope for the two scans: one class (fast) or the whole dataset"></select>
+      <input list="classList" id="dupScanSel" autocomplete="off"
+             spellcheck="false" placeholder="all classes"
+             style="max-width:140px; padding:2px 6px"
+             title="scope for the two scans: type one class (fast) or leave empty for the whole dataset">
       <button class="ghost" id="btnScan" style="padding:3px 10px"
               title="run every image through the current models — images that read as a DIFFERENT class at high confidence are usually saves that landed in the wrong folder">Scan for mislabels</button>
       <button class="ghost" id="btnDupScan" style="padding:3px 10px"
@@ -1053,7 +1084,9 @@
       </div>
       <div id="dsBulkBar" style="display:none; margin-top:8px" class="ctlRow">
         <b id="dsSelCount" style="color:var(--brass)">0 selected</b>
-        <select id="dsBulkTo" style="max-width:180px"></select>
+        <input list="classList" id="dsBulkTo" autocomplete="off"
+               spellcheck="false" placeholder="type a class&hellip;"
+               style="max-width:180px">
         <button class="ghost" id="btnBulkMove">Move selected</button>
         <button class="ghost danger" id="btnBulkDelete">Delete selected</button>
       </div>
@@ -1091,6 +1124,8 @@
       <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap">
         <button class="primary" id="btnTest">Classify</button>
         <button class="ghost" id="btnTestCam" style="display:none">Classify from camera</button>
+        <button class="ghost" id="btnTestFeedCase" style="display:none"
+          title="run one feed cycle — seats the next case under the camera">Feed next case</button>
         <button class="ghost" id="btnTestSynth">Try a synthetic case</button>
       </div>
       <div class="msg" id="testMsg"></div>
@@ -1105,7 +1140,8 @@
           image joins the real dataset for the next training run.
         </div>
         <label>Headstamp</label>
-        <select id="tsStamp"></select>
+        <input list="classList" id="tsStamp" autocomplete="off"
+               spellcheck="false">
         <div style="margin-top:10px">
           <button class="ghost" id="btnTestSave">Save to dataset</button>
         </div>
@@ -1460,11 +1496,17 @@ document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   if (location.hash !== "#" + b.dataset.tab)
     history.replaceState(null, "", "#" + b.dataset.tab);   // deep-linkable tabs
   if (b.dataset.tab === "docs") loadDocs();
+  if (b.dataset.tab === "fleet") fleetLoad();
   if (b.dataset.tab === "collect") pollMachine();  // machine chip + button labels
   if (b.dataset.tab === "dataset") refresh();   // pick up freshly collected counts
   if (b.dataset.tab === "run") { refresh(); updateRunChip(); }  // bin map + machine chip
   if (b.dataset.tab === "machine") loadMachineSettings();
   if (b.dataset.tab === "train") loadTrainMachine();  // re-check machine + USB stick
+  // a panel that missed refreshes while hidden catches up on entry
+  if (STATE && _dirtyTabs.has(b.dataset.tab)) {
+    _dirtyTabs.delete(b.dataset.tab);
+    _TAB_RENDER[b.dataset.tab]();
+  }
   syncTestStream();
   syncCollectStream();
 });
@@ -1525,14 +1567,20 @@ async function refresh() {
   const who = id.name || id.host || "";
   $("whoAmI").textContent = who + (id.trainer ? " · trainer" : "");
   document.title = `SortIQ — ${who}`;
-  renderModelBar(); renderModelSelect();
-  renderCollect(); renderTrainInfo(); renderBins();
+  // a model/profile switch (from ANY path, including another browser
+  // tab) invalidates the per-class exemplar cache — same class name,
+  // different dataset
+  const modelKey = `${STATE.cartridge}/${STATE.model}`;
+  if (refresh._model !== modelKey) { refresh._model = modelKey; dsExDrop(); }
+  renderModelBar(); renderModelSelect(); classListSync();
+  renderVisibleTabs();
   if (!$("test").querySelector("#discWrap svg")) drawDisc($("discWrap"), null);
   const camOk = STATE.camera === "ok";
   $("camBox").style.display = camOk ? "" : "none";
   $("camPanels").style.display = camOk ? "" : "none";
   $("noCam").style.display = camOk ? "none" : "";
   $("btnTestCam").style.display = camOk ? "" : "none";
+  $("btnTestFeedCase").style.display = camOk ? "" : "none";
   syncTestStream();
   syncCollectStream();
 }
@@ -1685,6 +1733,26 @@ const colRecent = [];     // this session's saves: {stamp, index, thumb}
 let recentFixIdx = null;
 let MACH = { connected: false, mode: null };
 
+// refresh() fires after every save/move/delete — rebuilding every
+// panel's DOM each time made the hot collect loop stutter. Only the
+// visible panel renders; hidden ones mark dirty and catch up when
+// their tab is opened.
+const _dirtyTabs = new Set();
+const _TAB_RENDER = {
+  collect: () => renderCollect(),
+  dataset: () => renderDatasetMgr(),
+  train: () => renderTrainInfo(),
+  run: () => renderBins(),     // the bin editor lives on the SORT page
+};
+function renderVisibleTabs() {
+  for (const tab of Object.keys(_TAB_RENDER)) {
+    if ($(tab).classList.contains("active")) {
+      _TAB_RENDER[tab]();
+      _dirtyTabs.delete(tab);
+    } else _dirtyTabs.add(tab);
+  }
+}
+
 function renderCollect() {
   if (colSel && !chipItems().some(i => i.n === colSel)) colSel = null;
   renderChips();
@@ -1700,7 +1768,6 @@ function renderCollect() {
   }
   updateCropLabels();
   updateColButtons();
-  renderDatasetMgr();
 }
 
 /* class-list tint: the thresholds are the machine's own behavior lines —
@@ -1723,9 +1790,6 @@ function renderDatasetMgr() {
   const labels = sortedLabels(raw, $("dsSortN").checked ? "count" : "alpha");
   // duplicate-scan scope picker: whole dataset, or one class for a
   // quick check right after a session on it (keeps the user's pick)
-  const prevScope = $("dupScanSel").value;
-  $("dupScanSel").innerHTML = `<option value="">all classes</option>` +
-    labels.map(l => `<option value="${l}"${l === prevScope ? " selected" : ""}>${l}</option>`).join("");
   $("dsMgr").innerHTML = labels.length
     ? labels.map(l => `<div class="dsRow"><span class="lbl" title="${l}"
           style="color:${classTier(raw[l])}">${l}</span>
@@ -1737,6 +1801,23 @@ function renderDatasetMgr() {
   renderFamilies();
 }
 $("dsSortN").onchange = renderDatasetMgr;
+
+// the scan modal's Move must resolve the "+ new class…" sentinel before
+// handing a class name to scanResolve
+async function scanMoveChoice(i) {
+  const to = await dsResolveTarget($("scanMoveTo"));
+  if (to) scanResolve(i, to);
+}
+
+$("btnDsNewClass").onclick = async () => {
+  const name = (prompt("New class name:") || "").trim().toUpperCase();
+  if (!name) return;
+  try {
+    await postJson("/api/stamps/add", { name });
+    msg("dsMsg", `Created ${name} — move or collect images into it`, true);
+    refresh();
+  } catch (e) { msg("dsMsg", e.message, false); }
+};
 
 /* ------------------- families (variant groups for bins) ------------- */
 function renderFamilies() {
@@ -1751,6 +1832,12 @@ function renderFamilies() {
         <button class="ghost danger" onclick="famDelete('${n.replace(/'/g, "\\'")}')">Delete</button>
       </div>`).join("")
     : `<div class="muted">no families yet — name one below and pick its members</div>`;
+  // mid-edit ticks survive background refreshes: a save elsewhere used
+  // to reset every checkbox to the stored family
+  if ($("famEditor").style.display !== "none"
+      && document.querySelectorAll(".famChk").length) {
+    return;      // an open editor's ticks are the user's — even all-clear
+  }
   const checked = new Set(fams[$("famName").value.trim().toUpperCase()] || []);
   $("famMembers").innerHTML = [...STATE.stamp_labels].sort()
     .map(s => `<label style="display:flex; gap:6px; align-items:center;
@@ -1819,8 +1906,9 @@ $("btnScan").onclick = async () => {
       return;
     }
     await postJson("/api/dataset/scan",
-                   { label: $("dupScanSel").value || undefined });
+                   { label: classVal($("dupScanSel")) || undefined });
     scanRowState = {};          // fresh scan, fresh triage state
+    renderScan._key = null;     // and a fresh list render
     scanCur = -1;
     pollScan();
   } catch (e) { msg("dsMsg", e.message, false); }
@@ -1851,6 +1939,11 @@ function renderScan(s) {
       (s.flagged.length
         ? `${s.flagged.length} image${s.flagged.length === 1 ? "" : "s"} read as a different class (sorted by confidence; high ones are usually mislabels)`
         : "every image reads as its own class ✓");
+  // rebuilding the list only when its CONTENT moved keeps the scroll
+  // (and the row indices under the user's cursor) still between polls
+  const listKey = s.flagged.map(scanKey).join();
+  if (listKey === renderScan._key) return;
+  renderScan._key = listKey;
   $("scanResults").innerHTML = s.flagged.map((f, i) => {
     const st = scanRowState[scanKey(f)] || {};
     return `
@@ -1887,13 +1980,12 @@ async function scanView(i) {
         ${j.a ? `<img class="thumb" src="${j.a}" style="max-width:260px">` : ""}
         ${j.head_crop ? `<img class="thumb" src="${j.head_crop}" style="max-width:200px">` : ""}
       </div>`;
-    const opts = moveTargets(f.label).map(t =>
-      `<option ${t === f.pred ? "selected" : ""}>${t}</option>`).join("");
     $("scanModalActions").innerHTML = `
       <button onclick="scanResolve(${i}, '${f.pred}')">Move to ${f.pred}</button>
       <label style="margin:0 0 0 10px">or</label>
-      <select id="scanMoveTo" style="max-width:180px">${opts}</select>
-      <button class="ghost" onclick="scanResolve(${i}, $('scanMoveTo').value)">Move</button>
+      <input list="classList" id="scanMoveTo" autocomplete="off"
+        spellcheck="false" placeholder="other class&hellip;" style="max-width:180px">
+      <button class="ghost" onclick="scanMoveChoice(${i})">Move</button>
       <button class="ghost danger" style="margin-left:auto"
               onclick="scanResolve(${i}, null)">Delete</button>`;
   } catch (e) {
@@ -1996,7 +2088,7 @@ $("btnDupScan").onclick = async () => {
       return;
     }
     await postJson("/api/dataset/dupscan",
-                   { label: $("dupScanSel").value || undefined });
+                   { label: classVal($("dupScanSel")) || undefined });
     dupState = {};
     pollDupScan();
   } catch (e) { msg("dsMsg", e.message, false); }
@@ -2089,6 +2181,7 @@ async function dupResolve(i) {
   try {
     await postJson("/api/dataset/bulk",
                    { action: "delete", label: g.label, indices: del });
+    dsExTouch(g.label, del);
     dupState[dupKey(g)] = `kept #${g.keep} · deleted ${del.length} ✓`;
     $(`dupG_${i}`).style.opacity = ".45";
     $(`dupKeep_${i}`).disabled = $(`dupIgn_${i}`).disabled = true;
@@ -2182,13 +2275,29 @@ function dsCellHtml(label, im, idPrefix) {
    </div>`;
 }
 
+let _dsExCache = { label: null, ex: null };
+function dsExDrop() { _dsExCache = { label: null, ex: null }; }
+// drop the cached exemplar strip only when a touched image is actually
+// IN it — the modal walk over non-exemplars stays round-trip-free
+function dsExTouch(label, indices) {
+  if (_dsExCache.label === label && _dsExCache.ex
+      && _dsExCache.ex.images.some(im => indices.includes(im.index)))
+    dsExDrop();
+}
+
 async function dsView(label, page = 0, scrollTo = false) {
   try {
     const DS_PAGE = dsPageSize();
     const enc = encodeURIComponent(label);
+    // exemplars only change on a gallery rebuild or a pin toggle —
+    // page flips and the modal walk's grid refreshes were re-paying
+    // up to 100 server-side decodes per click
+    const exCached = _dsExCache.label === label ? _dsExCache.ex : null;
     const [j, ex] = await Promise.all([
       api(`/api/dataset/images?label=${enc}&offset=${page * DS_PAGE}&limit=${DS_PAGE}`),
+      exCached ||
       api(`/api/dataset/images?label=${enc}&exemplars=1&limit=100`)]);
+    _dsExCache = { label, ex };
     // selection survives page flips within a class — only switching to a
     // different class resets it (and stales the detail modal's nav list)
     if (dsCur.label !== label) { dsSel.clear(); dsNav.label = null; }
@@ -2196,7 +2305,9 @@ async function dsView(label, page = 0, scrollTo = false) {
     updateBulkBar();
     $("dsGallery").style.display = "";
     $("dsHint").style.display = "none";
-    dsCloseDetail();
+    // NOTE: no dsCloseDetail() here — the detail modal overlays the
+    // page, so any dsView while it's open is the walk refreshing the
+    // grid underneath (after a Move/Delete); closing it killed the walk
     $("dsGalleryTitle").textContent = `${label} — ${j.total} image${j.total === 1 ? "" : "s"}`;
     $("dsThumbs").innerHTML = j.images.map(im => dsCellHtml(label, im, "dsCell_")).join("");
     $("dsExCard").style.display = ex.images.length ? "" : "none";
@@ -2238,6 +2349,7 @@ async function dsPin(label, index, state) {
                    excluded: "Excluded — never an exemplar",
                    none: "Back to automatic selection" }[state] +
       " (takes effect at the next gallery rebuild)", true);
+    dsExDrop();                        // badge states ride the exemplar set
     dsView(label, dsCur.page);
   } catch (e) { msg("dsMsg", e.message, false); }
 }
@@ -2293,12 +2405,16 @@ function galRebuild(statusEl) {
     const out = $(statusEl);
     try {
       await postJson("/api/gallery/rebuild", {});
+      // clear only AFTER a successful start: an impatient second click
+      // 409s, and clearing first would orphan the live rebuild's poller
+      clearTimeout(galPollTimer);
       out.textContent = "rebuilding gallery…";
       const poll = async () => {
         const s = await api("/api/gallery/rebuild");
         if (s.running) { galPollTimer = setTimeout(poll, 3000); return; }
         out.textContent = s.error
           ? `failed: ${s.error}` : `gallery done ${s.done} — ${s.log}`;
+        dsExDrop();                    // new gallery = new exemplar set
         if (!s.error && dsCur.label) dsView(dsCur.label, dsCur.page);
         refresh();
       };
@@ -2328,8 +2444,6 @@ function updateBulkBar() {
     ? "Click thumbnails to select them, then move or delete the whole selection."
     : "Click a thumbnail to open it.";
   $("dsSelCount").textContent = `${dsSel.size} selected`;
-  if (on && dsCur.label)
-    $("dsBulkTo").innerHTML = moveTargets(dsCur.label).map(t => `<option>${t}</option>`).join("");
 }
 $("dsMulti").onchange = () => {
   dsSel.clear();
@@ -2343,9 +2457,16 @@ async function dsBulk(action) {
       !confirm(`Delete ${dsSel.size} image(s) from ${dsCur.label}? This removes the raw photos permanently.`))
     return;
   try {
+    let to;
+    if (action === "move") {
+      to = await dsResolveTarget($("dsBulkTo"));
+      if (!to) return;
+    }
+    const sent = [...dsSel];     // snapshot: cells can toggle mid-request
     const j = await postJson("/api/dataset/bulk", { label: dsCur.label,
-      indices: [...dsSel], action, to: action === "move" ? $("dsBulkTo").value : undefined });
+      indices: sent, action, to });
     msg("dsMsg", `${action === "move" ? "Moved" : "Deleted"} ${j.processed} image(s)`, true);
+    dsExTouch(dsCur.label, sent);
     dsSel.clear();               // the selection was consumed by the action
     await refresh();
     dsView(dsCur.label, 0);
@@ -2362,12 +2483,47 @@ $("dsGalleryClose").onclick = () => {
   dsCloseDetail();
 };
 
-function moveTargets(current) {
-  // every label the config allows, plus whatever already exists on disk
-  const targets = new Set([...STATE.stamp_labels,
-                           ...Object.keys(STATE.datasets.real.raw || {})]);
-  targets.delete(current);
-  return [...targets].sort();
+// every class picker is an <input list="classList"> — type-to-filter
+// over one shared datalist (86 classes outgrew native selects, and a
+// hundred review cards no longer each carry a full option list)
+function classListSync() {
+  $("classList").innerHTML = [...STATE.stamp_labels].sort()
+    .map(s => `<option value="${s}">`).join("")
+    + `<option value="UNKNOWN" label="set aside — identify later">`;
+}
+
+function classVal(el) { return (el.value || "").trim().toUpperCase(); }
+
+function classKnown(v) {
+  return STATE.stamp_labels.includes(v)
+    || Object.keys(STATE.datasets.real.raw || {}).includes(v);
+}
+
+// resolve a picker: a known class passes through; an unknown name is a
+// create-on-confirm — typing a new name IS the new-class gesture
+async function dsResolveTarget(el) {
+  const v = classVal(el);
+  if (!v) { alert("Type a destination class first."); return null; }
+  if (v === "UNKNOWN") {
+    // moving to "UNKNOWN" would create a trainable CLASS by that name,
+    // not the set-aside pool — only the filing flows can set aside
+    alert("UNKNOWN is the set-aside pool, not a class — file cases there "
+          + "from batch or reject review instead of moving images.");
+    return null;
+  }
+  if (!classKnown(v)) {
+    if (!confirm(`Create new class "${v}"?`)) return null;
+    try {
+      await postJson("/api/stamps/add", { name: v });
+    } catch (e) {
+      if (!/already|exists/i.test(e.message)) {
+        alert(e.message);
+        return null;
+      }
+    }
+    refresh();
+  }
+  return v;
 }
 
 // prev/next state for the detail modal: the class's full ordered index
@@ -2387,7 +2543,6 @@ async function dsDetail(label, index) {
     const next = pos >= 0 && pos < dsNav.indices.length - 1
       ? dsNav.indices[pos + 1] : null;
     const j = await api(`/api/dataset/pair?label=${encodeURIComponent(label)}&index=${index}`);
-    const opts = moveTargets(label).map(t => `<option>${t}</option>`).join("");
     $("dsImgModal").style.display = "flex";
     $("dsDetail").innerHTML = `
       <h3 style="margin:0">${label} #${index}${j.a_sharpness ? ` <span class="muted">· sharpness ${j.a_sharpness}</span>` : ""}</h3>
@@ -2399,7 +2554,8 @@ async function dsDetail(label, index) {
            justify-content:space-between; flex-wrap:wrap">
         <div style="display:flex; gap:8px; align-items:center; flex:none">
           <label style="margin:0">Move to</label>
-          <select id="dsMoveTo" style="max-width:150px">${opts}</select>
+          <input list="classList" id="dsMoveTo" autocomplete="off"
+            spellcheck="false" placeholder="type a class&hellip;" style="max-width:150px">
           <button class="ghost" onclick="dsMove('${esc}', ${index})">Move</button>
           <button class="ghost danger" onclick="dsDelNav('${esc}', ${index})">Delete</button>
         </div>
@@ -2443,12 +2599,14 @@ function dsCloseDetail() {
 
 async function dsMove(label, index) {
   try {
-    const j = await postJson("/api/dataset/move",
-      { label, index, to: $("dsMoveTo").value });
+    const to = await dsResolveTarget($("dsMoveTo"));
+    if (!to) return;
+    const j = await postJson("/api/dataset/move", { label, index, to });
     msg("dsMsg", `Moved to ${j.moved_to}`, true);
-    await refresh();
-    dsView(label, dsCur.page);
+    dsExTouch(label, [index]);
     dsNavAdvance(label, index);      // stay in the walk: next image up
+    refresh();                       // counts + grid catch up in parallel,
+    dsView(label, dsCur.page);       // nothing serializes behind them
   } catch (e) { msg("dsMsg", e.message, false); }
 }
 
@@ -2458,7 +2616,8 @@ async function dsDelPair(label, index) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ label, index }) });
     msg("dsMsg", `Deleted ${label} #${index}`, true);
-    await refresh();
+    dsExTouch(label, [index]);
+    refresh();
     dsView(label, dsCur.page);
   } catch (e) { msg("dsMsg", e.message, false); }
 }
@@ -2763,7 +2922,7 @@ function openRecentFix(i) {
   const r = colRecent[i];
   $("recentFix").style.display = "";
   $("recentFixLbl").textContent = `${r.stamp} #${r.index} →`;
-  $("recentFixTo").innerHTML = moveTargets(r.stamp).map(t => `<option>${t}</option>`).join("");
+  $("recentFixTo").value = "";
   msg("recentMsg", "");
   // expanded review image: the session thumb right away (it's the same
   // crop, just small), the full-size crop swapped in once fetched
@@ -2790,8 +2949,10 @@ $("btnRecentMove").onclick = async () => {
   const r = colRecent[recentFixIdx];
   if (!r) return;
   try {
+    const to = await dsResolveTarget($("recentFixTo"));
+    if (!to) return;
     const j = await postJson("/api/dataset/move",
-      { label: r.stamp, index: r.index, to: $("recentFixTo").value });
+      { label: r.stamp, index: r.index, to });
     const m = /^(.*) #(\d+)$/.exec(j.moved_to);
     if (m) { r.stamp = m[1]; r.index = +m[2]; }
     msg("recentMsg", `Moved to ${j.moved_to}`, true);
@@ -2848,7 +3009,10 @@ function fmtRunId(id) {
 async function batchSync() {
   clearTimeout(batchTimer);
   try {
-    const s = await api("/api/run/status");
+    // brief=1: this poller only reads counters — the full status hauls
+    // ~200KB of recent-case thumbnails per tick, twice a second when
+    // the Sort page's poller is also alive
+    const s = await api("/api/run/status?brief=1");
     if (s.running) {
       batchRun = s.run_id;
       $("btnBatchStart").style.display = "none";
@@ -2856,7 +3020,10 @@ async function batchSync() {
       $("batchRunSel").style.display = "none";
       $("batchStatus").textContent =
         `capturing… ${s.sorted} cases so far`;
-      batchTimer = setTimeout(batchSync, 1500);
+      // keep watching for run-end even off-tab, just less eagerly
+      const here = $("collect").classList.contains("active")
+                   && colView === "batch" && !document.hidden;
+      batchTimer = setTimeout(batchSync, here ? 1500 : 5000);
       return;
     }
     $("btnBatchStart").style.display = "";
@@ -2910,10 +3077,38 @@ async function loadBatchGroups(run) {
   const j = await api(`/api/runs/${run}/groups`);
   $("batchStatus").textContent =
     `${j.total} cases captured — confirm the groups below (click a case to pull it out of its group)`;
-  const opts = fileOpts();
   window._batchGroups = j.groups;
   window._batchExc = window._batchExc || new Set();
-  $("batchGroups").innerHTML = j.groups.map((g, i) => {
+  renderBatchGroups();
+}
+
+// resolved cases leave by LOCAL re-render — the groups endpoint
+// re-embeds and re-clusters every unknown on the machine, so a
+// re-fetch after each pull-out File/Discard stalled for seconds
+function batchDropCases(ns) {
+  const gone = new Set(ns);
+  window._batchGroups = window._batchGroups
+    .map(g => g.resolved ? g
+         : Object.assign({}, g, { cases: g.cases.filter(c => !gone.has(c.n)) }))
+    .filter(g => g.resolved || g.cases.length);
+  renderBatchGroups();
+}
+
+function renderBatchGroups() {
+  const groups = window._batchGroups || [];
+  // a re-render must not eat half-made choices on OTHER cards: remember
+  // each group's dropdown pick and typed name, keyed by member case
+  // (indices shift when groups empty out, case numbers never do)
+  const kept = {};
+  document.querySelectorAll("#batchGroups input.revStamp").forEach(inp => {
+    const v = inp.value;
+    inp.closest(".card").querySelectorAll(".revCard").forEach(cc =>
+      kept[cc.id.slice(4)] = v);
+  });
+  $("batchGroups").innerHTML = groups.map((g, i) => {
+    if (g.resolved)          // filed/discarded groups keep their receipt
+      return `<div class="card" id="bg_${i}" style="margin-top:10px">
+        <div class="muted" style="padding:6px">${g.resolved}</div></div>`;
     // who's crowding this pile: if one runner-up class dominates, name
     // it in the header — "high % but R-P right behind" in one glance
     const crowdCounts = {};
@@ -2936,11 +3131,11 @@ async function loadBatchGroups(run) {
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap">
         <h3 style="margin:0">${label}</h3>
         <span style="flex:1"></span>
-        ${g.kind === "class"
-          ? `<select class="revStamp" id="bgSel_${i}"></select>`
-          : `<select class="revStamp" id="bgSel_${i}"></select>
-             <input type="text" id="bgNew_${i}" style="max-width:180px"
-               placeholder="…or name a new stamp">`}
+        <input list="classList" class="revStamp" id="bgSel_${i}"
+          autocomplete="off" spellcheck="false"
+          value="${g.kind !== "cluster" && g.label ? g.label : ""}"
+          placeholder="class — type a new name to create it"
+          style="max-width:220px">
         ${g.well_fed
           ? `<button class="ghost" onclick="batchFile(${i})">File novel</button>
              <button class="ghost" onclick="batchFile(${i}, false, true)">File all</button>`
@@ -2961,18 +3156,12 @@ async function loadBatchGroups(run) {
     </div>`;
   }).join("") || `<div class="muted">nothing captured yet</div>`;
   updateBatchExcBar();
-  j.groups.forEach((g, i) => {
-    const sel = $(`bgSel_${i}`);
-    if (!sel) return;
-    if (g.kind === "class") {
-      sel.innerHTML = opts;
-      if (g.label) sel.value = g.label;
-    } else {   // cluster/suggest: dropdown of known stamps + name box
-      sel.innerHTML = `<option value="">— pick existing —</option>` + opts;
-      // a suggest group pre-selects the model's best guess — one click
-      // confirms the whole pile, the dropdown overrides when it's wrong
-      sel.value = g.kind === "suggest" && g.label ? g.label : "";
-    }
+  groups.forEach((g, i) => {
+    const inp = $(`bgSel_${i}`);
+    if (!inp) return;
+    const k = g.cases.length ? kept[g.cases[0].n] : null;
+    if (k != null) inp.value = k;  // survivor choices win over defaults —
+                                   // including a deliberately CLEARED one
   });
 }
 
@@ -2991,7 +3180,6 @@ function updateBatchExcBar() {
   $("batchExcBar").style.display = n ? "" : "none";
   if (n) {
     $("batchExcCount").textContent = `${n} case${n === 1 ? "" : "s"}`;
-    $("batchExcSel").innerHTML = fileOpts();
   }
 }
 
@@ -3008,14 +3196,17 @@ async function batchExcResolve(discard) {
   if (!ns.length) return;
   // pulled-out cases are a deliberate hand-filing — never intake-filtered
   const body = { ns, action: discard ? "discard" : "save", file_all: true };
-  if (!discard) body.stamp = $("batchExcSel").value;
+  if (!discard) {
+    body.stamp = await dsResolveTarget($("batchExcSel"));
+    if (!body.stamp) return;
+  }
   try {
     const j = await postJson(`/api/runs/${batchRun}/cases/bulk_resolve`, body);
     window._batchExc.clear();
+    batchDropCases(ns);
     $("batchStatus").textContent = discard
       ? `discarded ${j.discarded}` : bulkFiledMsg(j);
     refresh();
-    await loadBatchGroups(batchRun);
   } catch (e) { $("batchStatus").textContent = e.message; }
 }
 $("btnBatchExcFile").onclick = () => batchExcResolve(false);
@@ -3034,42 +3225,51 @@ async function batchFile(i, discard, fileAll) {
   // cluster piles are hard examples, always worth their disk space
   if (fileAll || g.kind !== "class") body.file_all = true;
   if (!discard) {
-    if (g.kind === "class") {
-      const b = stampChoice($(`bgSel_${i}`));
-      if (!b) return;
-      body.stamp = b.stamp;
-      if (b.create) body.create = true;
-    } else {
-      const sel = $(`bgSel_${i}`);
-      const name = $(`bgNew_${i}`).value.trim().toUpperCase();
-      // a TYPED name always wins — the dropdown may be pre-selected
-      // (suggest cards) and must never hijack an explicit new-class name
-      if (name) {
-        body.stamp = name;
-        if (name !== "UNKNOWN") body.create = true;
-      } else if (sel && sel.value) {   // an existing class the model missed
-        const b = stampChoice(sel);
-        if (!b) return;
-        body.stamp = b.stamp;
-        if (b.create) body.create = true;
-      } else {
-        $("batchStatus").textContent =
-          "pick an existing class or name the cluster first (or Discard all)";
-        return;
-      }
+    // one picker per card: a known class files there, an unknown typed
+    // name creates the class as it files, UNKNOWN sets aside
+    const v = classVal($(`bgSel_${i}`));
+    if (!v) {
+      $("batchStatus").textContent =
+        "pick a class or type a new name first (or Discard all)";
+      return;
+    }
+    body.stamp = v;
+    if (v !== "UNKNOWN" && !classKnown(v)) {
+      if (!confirm(`Create new class "${v}" and file ${ns.length} `
+                   + `case(s) there?`)) return;
+      body.create = true;
     }
   }
   try {
     const j = await postJson(`/api/runs/${batchRun}/cases/bulk_resolve`, body);
-    $(`bg_${i}`).innerHTML = `<div class="muted" style="padding:6px">${discard
-      ? `discarded ${j.discarded}` : bulkFiledMsg(j)}</div>`;
+    // a pull-out resolve may have re-rendered (cloned groups, shifted
+    // indices) while this request was in flight — re-locate the group
+    // by a member case before touching the DOM or the cache
+    const probe = ns[0];   // a case IN this resolve can't be pulled out —
+                           // g.cases[0] could be, and would mis-probe
+    const ni = window._batchGroups.findIndex(
+      x => x.cases.some(c => c.n === probe));
+    const gg = ni >= 0 ? window._batchGroups[ni] : g;
+    gg.resolved = discard ? `discarded ${j.discarded}` : bulkFiledMsg(j);
+    const card = ni >= 0 && $(`bg_${ni}`);
+    if (card) card.innerHTML =
+      `<div class="muted" style="padding:6px">${gg.resolved}</div>`;
+    else renderBatchGroups();
     refresh();          // dataset counts move on Collect/Train tabs
-    // removed cases stay unresolved — regroup them into their own cards
-    // so each can be filed (or discarded) on its own terms
-    const removedHere = g.cases.some(c => exc.has(c.n));
-    if (removedHere) {
-      g.cases.forEach(c => exc.delete(c.n));
-      await loadBatchGroups(batchRun);
+    // removed cases stay unresolved — regroup them into their own LOCAL
+    // card so each can be filed (or discarded) on its own terms (the
+    // server round-trip here re-embedded and re-clustered the whole run)
+    const left = gg.cases.filter(c => exc.has(c.n));
+    if (left.length) {
+      left.forEach(c => exc.delete(c.n));
+      $("batchStatus").textContent =
+        `${gg.resolved} — ${left.length} pulled-out case${
+          left.length === 1 ? "" : "s"} regrouped below`;
+      gg.cases = left;
+      delete gg.resolved;              // the receipt moved to the status line
+      gg.kind = "cluster";
+      gg.label = null;
+      renderBatchGroups();
     }
   } catch (e) { $("batchStatus").textContent = e.message; }
 }
@@ -3085,7 +3285,10 @@ $("camFast").onchange = () => {          // swap the live stream in place
 
 async function livePreviewTick() {
   if (!STATE || STATE.camera !== "ok") return;
-  if (!$("collect").classList.contains("active") || colView !== "setup") return;
+  if (!$("collect").classList.contains("active") || colView !== "setup"
+      || document.hidden) return;
+  if (livePreviewTick._busy) return;   // a slow preview must not pile up
+  livePreviewTick._busy = true;
   try {
     const j = await api(`/api/imaging/preview?frac=${$("pocketFrac").value}` +
       `&rim=${$("rimScale").value}&mode=${(STATE.imaging.crop_mode || "normal")}`);
@@ -3094,6 +3297,7 @@ async function livePreviewTick() {
     if (j.indicator) $("maskPrev").src = j.indicator;
     $("capState").textContent = `live preview · sharpness ${j.sharpness}`;
   } catch {}
+  finally { livePreviewTick._busy = false; }
 }
 setInterval(livePreviewTick, 1200);
 const livePreviewNow = debounce(livePreviewTick, 200);
@@ -3796,7 +4000,9 @@ async function tmDevicePick() {
       ? `<span style="color:var(--green)">ready ✓ ${(((g.checks || []).find(l => l.startsWith("ok   gpu")) || "").replace("ok   gpu", "").split(",")[0]).trim()}</span>`
       : (g.state === "probing" || g.state === "unknown")
         ? `<span class="muted">checking the GPU sandbox…</span>`
-        : `<span style="color:var(--red)">unavailable — ${((g.checks || []).find(l => l.startsWith("FAIL")) || "probe failed").slice(0, 70)}</span>`;
+        : `<span style="color:var(--red)">unavailable — ${((g.checks || []).find(l => l.startsWith("FAIL")) || "probe failed").slice(0, 70)}</span>
+           <button class="ghost" style="padding:2px 10px"
+             onclick="tmReprobe()">Re-check</button>`;
   const opt = (val, ok, label, sub) => `
     <label style="display:flex; gap:8px; align-items:baseline; margin-top:6px;
                   cursor:${ok ? "pointer" : "default"}; opacity:${ok ? 1 : 0.55}">
@@ -3824,6 +4030,13 @@ async function tmDevicePick() {
     </div>`);
   if (g.supported && (g.state === "probing" || g.state === "unknown"))
     tmTimer = setTimeout(tmDevicePick, 4000);
+}
+
+async function tmReprobe() {
+  // a cold WSL boot can fail the startup probe and the verdict sticks;
+  // one click re-runs it (the server refuses while a job is training)
+  try { await tmFetch("/api/gpu/probe", {}); } catch (e) {}
+  tmDevicePick();
 }
 
 async function tmStartTrain(device) {
@@ -4302,6 +4515,21 @@ $("btnTestSynth").onclick = () => {
   const fd = new FormData(); fd.append("synthetic", "1");
   runTest(fd, { synthetic: true });
 };
+$("btnTestFeedCase").onclick = async () => {
+  const b = $("btnTestFeedCase");
+  b.disabled = true;
+  msg("testMsg", "feeding…", true);
+  try {
+    // same slot-0 park as Collect's advance: seat the next case, then
+    // "Classify from camera" reads it — feed-and-check without a run
+    const j = await postJson("/api/machine/test", { action: "feed", slot: 0 });
+    msg("testMsg", j.result === "done"
+      ? "case seated — Classify from camera when ready" : j.result,
+      j.result === "done");
+  } catch (e) { msg("testMsg", e.message, false); }
+  b.disabled = false;
+};
+
 $("btnTestCam").onclick = async () => {
   try {
     const a = await api("/api/capture", { method: "POST" });
@@ -4317,17 +4545,22 @@ function renderTestSave(j) {
   const show = lastTest && !lastTest.synthetic;
   $("testSave").style.display = show ? "" : "none";
   if (!show) return;
-  const sel = $("tsStamp");
-  sel.innerHTML = [...STATE.stamp_labels].sort((a, b) => a.localeCompare(b))
-                  .map(s => `<option>${s}</option>`).join("");
-  if (j.stamp && [...sel.options].some(o => o.value === j.stamp)) sel.value = j.stamp;
+  if (j.stamp) $("tsStamp").value = j.stamp;
   msg("tsMsg", "");
 }
 
 $("btnTestSave").onclick = async () => {
   if (!lastTest || lastTest.synthetic) return;
+  // /api/save_pair creates directories for whatever it is handed — the
+  // picker must only pass REAL classes (typos and UNKNOWN refuse)
+  const v = classVal($("tsStamp"));
+  if (!v || v === "UNKNOWN" || !classKnown(v)) {
+    msg("tsMsg", v ? `no class named "${v}" — pick one from the list`
+                   : "pick a class first", false);
+    return;
+  }
   const fd = new FormData();
-  fd.append("stamp", $("tsStamp").value);
+  fd.append("stamp", v);
   if (typeof lastTest.a === "string") fd.append("frameA_b64", lastTest.a);
   else fd.append("frameA", lastTest.a);
   try {
@@ -4675,8 +4908,12 @@ $("btnResetCounters").onclick = () => postJson("/api/run/reset_counters", {}).th
 
 async function pollRun() {
   clearTimeout(runTimer);
+  // off the Sort tab (or with the browser tab hidden) the poll only
+  // needs counters and run-end detection — no thumbnails, slower tick
+  const runVisible = $("run").classList.contains("active")
+                     && !document.hidden;
   let s;
-  try { s = await api("/api/run/status"); }
+  try { s = await api("/api/run/status" + (runVisible ? "" : "?brief=1")); }
   catch {
     // one failed poll must NOT kill the watcher — a mid-run blip used
     // to end it silently, so the run finished with no banner or report
@@ -4701,7 +4938,13 @@ async function pollRun() {
     : r.reason === "no_bin_mapping" ? `${r.category} · no bin`
     : `unmatched · ${REASONS[r.reason] || r.reason}`;
   const last = s.recent && s.recent[s.recent.length - 1];
-  if (last) {
+  // identical payload -> identical DOM: don't re-decode 10 inline
+  // thumbnails a second when nothing new was sorted. Case numbers
+  // restart at 1 every run, so a new run resets the key too.
+  if (s.run_id !== pollRun._run) { pollRun._run = s.run_id; pollRun._key = ""; }
+  const recentKey = last ? s.recent.map(r => r.n).join() : "";
+  if (last && recentKey !== pollRun._key) {
+    pollRun._key = recentKey;
     $("runLast").className = "";
     $("runLast").innerHTML = `<div class="runCase ${classified(last) ? "" : "rej"}">
       ${last.thumb ? `<img src="${last.thumb}" alt="current case">` : ""}
@@ -4756,7 +4999,8 @@ async function pollRun() {
     }
   }
 
-  drawDisc($("runDisc"), last ? last.bin : null, s.bin_counts || {});
+  if (runVisible)
+    drawDisc($("runDisc"), last ? last.bin : null, s.bin_counts || {});
 
   $("runScore").innerHTML = s.score ? `
     <h3>Ground-truth score (sim)</h3>
@@ -4771,7 +5015,7 @@ async function pollRun() {
   const banner = $("runEndBanner");
   if (s.running) {
     banner.style.display = "none";
-    runTimer = setTimeout(pollRun, 1000);
+    runTimer = setTimeout(pollRun, runVisible ? 1000 : 3000);
   } else if (s.finished) {
     // fork firmware homing telemetry: seek µsteps per feed cycle — a
     // rising "last" against "worst" is the wheel drifting toward a jam
@@ -4846,7 +5090,9 @@ async function loadReport(runId) {
           <div class="why">#${c.n} · ${c.stamp || "?"} · ${Math.round(c.conf * 100)}%</div>
           <div class="caseAct" style="display:flex; gap:6px">${c.filed
             ? `<span class="pill ok">filed ✓</span>`
-            : `<select class="revStamp" style="flex:1"></select>
+            : `<input list="classList" class="revStamp" style="flex:1"
+                 autocomplete="off" spellcheck="false"
+                 value="${c.stamp || ""}">
                <button class="ghost" style="padding:2px 10px"
                  onclick="caseResolve('${run}', ${c.n})">File</button>`}
           </div>
@@ -4907,16 +5153,6 @@ async function loadReport(runId) {
         ${binRows}</table>
       <div class="muted" style="margin:6px 0 2px">${reasonRow}</div>
       ${grids}`;
-    // populate + prefill each card's reassign select with its verdict —
-    // filing a mislabeled accept is then one glance and one click
-    const opts = fileOpts();
-    j.cases.forEach(c => {
-      const sel = document.querySelector(`#case_${c.n} .revStamp`);
-      if (sel) {
-        sel.innerHTML = opts;
-        if (c.stamp) sel.value = c.stamp;
-      }
-    });
     return true;
   } catch (e) { msg("revMsg", e.message, false); return false; }
 }
@@ -4933,39 +5169,34 @@ async function loadRejects() {
     }
     msg("revMsg", j.total > j.rejects.length
       ? `Showing the first ${j.rejects.length} of ${j.total} rejects — the rest load as these are resolved.` : "");
-    const stampOpts = fileOpts();
     $("revGrid").innerHTML = j.rejects.map(r => `
       <div class="revCard" id="rev_${r.n}">
         <img src="${r.thumb}">
         <div class="why">#${r.n} · ${rejectWhy(r)}</div>
-        <select class="revStamp">${stampOpts}</select>
+        <input list="classList" class="revStamp" autocomplete="off"
+          spellcheck="false" value="${r.stamp || ""}"
+          placeholder="class — or UNKNOWN to set aside">
         <div style="display:flex; gap:6px">
           <button class="ghost" style="flex:1" onclick="revResolve('${run}', ${r.n}, true)">Save</button>
           <button class="ghost danger" onclick="revResolve('${run}', ${r.n}, false)">Discard</button>
         </div>
       </div>`).join("");
-    // prefill each card with the model's best guess
-    j.rejects.forEach(r => {
-      const sSel = $(`rev_${r.n}`).querySelector(".revStamp");
-      if (r.stamp && [...sSel.options].some(o => o.value === r.stamp)) sSel.value = r.stamp;
-    });
   } catch (e) { msg("revMsg", e.message, false); }
 }
 
-// select value -> resolve body fields
-function stampChoice(sel) {
-  return { action: "save", stamp: sel.value };
+// picker value -> resolve body fields (typed values must be REAL:
+// reject/report filing never silently creates classes)
+function stampChoice(el) {
+  const v = classVal(el);
+  if (!v) return null;
+  if (v !== "UNKNOWN" && !classKnown(v)) {
+    alert(`No class named "${v}" — pick one from the list, or create it
+first (New class on the Dataset page).`);
+    return null;
+  }
+  return { action: "save", stamp: v };
 }
 
-// options shared by reject review and the report's reassign cards:
-// every class, plus the Unknown pool. New classes are NOT created here —
-// unknown stamps go to set-aside; naming the tray group creates the class
-// (one flow for new brass, and same-stamp strangers cluster together).
-function fileOpts(extra) {
-  return [...STATE.stamp_labels].sort((a, b) => a.localeCompare(b))
-    .map(s => `<option>${s}</option>`).join("") +
-    `<option value="UNKNOWN">Set aside — identify later</option>` + (extra || "");
-}
 
 async function revResolve(run, n, save) {
   const card = $(`rev_${n}`);
@@ -4979,7 +5210,11 @@ async function revResolve(run, n, save) {
     card.remove();
     msg("revMsg", save ? `Saved as ${j.saved}` : "Discarded", true);
     if (save) refresh();
-    loadRuns();
+    // flicking through cards must feel instant: the dropdown's
+    // "N to review" counts refresh in one debounced pass, not with a
+    // full runs-directory walk per click
+    clearTimeout(revResolve._t);
+    revResolve._t = setTimeout(loadRuns, 2500);
     // the list is served 100 at a time — an empty grid may just mean the
     // batch is done, so ask again for whatever is still on disk
     if (!$("revGrid").children.length) loadRejects();
@@ -5273,6 +5508,99 @@ $("btnMsRead").onclick = async () => {
 })();
 $("sysHeader").onclick = () => { $("sysModal").style.display = "flex"; };
 
+/* ------------------------- fleet tab -------------------------------- */
+// polling exists only while the tab is open — no background timers on
+// the machine, per the one-heavy-thing doctrine
+let fleetTimer = null;
+
+async function fleetLoad() {
+  clearTimeout(fleetTimer);
+  if (!$("fleet").classList.contains("active")) return;
+  try {
+    const j = await api("/api/fleet");
+    fleetRender(j.cards || []);
+  } catch (e) { msg("fleetMsg", e.message, false); }
+  fleetTimer = setTimeout(fleetLoad, 10000);
+}
+
+function fleetRender(cards) {
+  $("fleetCards").innerHTML = cards.map(c => {
+    if (!c.reachable) return `
+      <div class="card" style="opacity:.45">
+        <b>${c.url}</b>
+        <div class="muted" style="margin-top:6px">unreachable
+          <a style="cursor:pointer; margin-left:8px; opacity:.8"
+             onclick="fleetForget('${c.url}')">forget</a></div>
+      </div>`;
+    const dot = ok => `<span style="color:${ok ? "var(--green)" : "var(--red)"}">●</span>`;
+    const run = c.run && c.run.running
+      ? `<div style="color:var(--green); margin-top:4px">${
+          c.run.capture ? "capturing" : "sorting"} — ${c.run.cases} cases</div>`
+      : `<div class="muted" style="margin-top:4px">idle</div>`;
+    const name = c.me
+      ? `<b>${c.name}</b> <span class="muted">(this machine)</span>`
+      : `<a href="${c.url}" target="_blank" style="font-weight:700">${c.name}</a>`;
+    const build = c.same_build
+      ? `<span class="muted">v${c.version} · ${(c.digest || "").slice(0, 8)}</span>`
+      : `<span style="color:var(--amber)">v${c.version} · ${(c.digest || "").slice(0, 8)}
+           — different build</span>
+         <button class="ghost" style="padding:2px 10px"
+           onclick="fleetUpdate('${c.url}')">Update from here</button>`;
+    return `
+      <div class="card" style="margin:0">
+        <div style="display:flex; gap:8px; align-items:baseline; flex-wrap:wrap">
+          ${name}<span style="flex:1"></span>
+          <span class="muted" style="font-size:12px">${c.host || ""}</span>
+        </div>
+        <div class="muted" style="margin-top:4px">${c.model} · ${c.classes} classes${
+          c.can_train ? " · trainer" : ""}</div>
+        <div style="margin-top:6px; font-size:13px">
+          ${dot(c.camera === "ok")} camera&nbsp;&nbsp;${dot(c.board)} board</div>
+        ${run}
+        <div style="margin-top:8px; font-size:12px">${build}</div>
+      </div>`;
+  }).join("") || `<div class="muted">no machines known yet — scan the network</div>`;
+  const peers = cards.filter(c => !c.me).map(c => c.url);
+  $("fleetPeers").textContent = peers.length
+    ? `known machines: ${peers.join("  ·  ")}` : "";
+}
+
+async function fleetForget(url) {
+  try {
+    const cur = await api("/api/fleet/peers");
+    const peers = (cur.peers || []).filter(u => u !== url);
+    await postJson("/api/fleet/peers", { peers });
+    fleetLoad();
+  } catch (e) { msg("fleetMsg", e.message, false); }
+}
+
+async function fleetUpdate(url) {
+  if (!confirm(`Update ${url} to this machine's build? It restarts when done.`))
+    return;
+  msg("fleetMsg", "updating peer — it restarts when done…", true);
+  try {
+    const j = await postJson("/api/fleet/update", { peer: url });
+    msg("fleetMsg", `peer updated ${j.updated ?? "?"} file(s)` +
+        (j.restarting ? " — restarting" : ""), true);
+    setTimeout(fleetLoad, 8000);
+  } catch (e) { msg("fleetMsg", e.message, false); }
+}
+
+$("btnFleetScan").onclick = async () => {
+  msg("fleetMsg", "scanning the /24…", true);
+  try {
+    const s = await postJson("/api/machines/scan", {});
+    const found = (s.found || []).filter(m => !m.self)
+      .map(m => `http://${m.ip}:5000`);
+    const cur = await api("/api/fleet/peers");
+    const peers = [...new Set([...(cur.peers || []), ...found])];
+    await postJson("/api/fleet/peers", { peers });
+    msg("fleetMsg", found.length
+      ? `found ${found.length} machine(s)` : "no other machines answered", true);
+    fleetLoad();
+  } catch (e) { msg("fleetMsg", e.message, false); }
+};
+
 /* ---------------- Pi network (header chip + dialog) ------------------ */
 function setNetHeader(text, title, alert) {
   // icon-only chip: the summary lives in the tooltip; green = connected,
@@ -5317,7 +5645,7 @@ async function loadNetwork() {
   }
 }
 // keep the header truthful even if nothing opens the dialog
-setInterval(loadNetwork, 30000);
+setInterval(() => { if (!document.hidden) loadNetwork(); }, 30000);
 
 $("netHeader").onclick = () => {
   $("netModal").style.display = "flex";
@@ -5437,16 +5765,21 @@ async function pollConsole() {
         `<span class="${l.dir === ">" ? "tx" : "rx"}">${l.t} ${l.dir} ${l.line}</span>`).join("\n")
       || "connected — waiting for traffic"
     : "not connected";
-  for (const id of ["conLog", "conDockLog"]) {
-    const el = $(id);
-    const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-    el.innerHTML = html;
-    if (stick) el.scrollTop = el.scrollHeight;
+  if (html !== pollConsole._last) {    // unchanged log: no DOM rebuild
+    pollConsole._last = html;
+    for (const id of ["conLog", "conDockLog"]) {
+      const el = $(id);
+      const stick = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+      el.innerHTML = html;
+      if (stick) el.scrollTop = el.scrollHeight;
+    }
   }
   $("conDockDot").className = "dot" + (connected ? " on" : "");
-  // keep polling while there's a reader: the board log itself accumulates
-  // server-side either way, this only drives the two displays
-  if (connected || conDockOpen || $("machine").classList.contains("active"))
+  // poll only while someone is LOOKING at a console (the dock, or the
+  // Machine tab) — "connected" alone kept this ticking forever, since
+  // a board is attached in normal operation; the server accumulates
+  // the log either way
+  if (conDockOpen || $("machine").classList.contains("active"))
     conTimer = setTimeout(pollConsole, 900);
 }
 

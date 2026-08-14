@@ -2,6 +2,8 @@
 are always derivable from it via rebuild_crops(), so every mutation
 (delete, rename/merge) is: change raw/, then rebuild.
 """
+import hashlib
+import json
 import time
 from pathlib import Path
 
@@ -57,7 +59,21 @@ def raw_counts(root):
             for d in sorted(raw.iterdir()) if d.is_dir()}
 
 
-def rebuild_crops(root, labels=None):
+def _crops_sig(root):
+    """What the crops on disk were shaped by: the profile's imaging
+    settings plus the imaging code itself. Either moving means every
+    crop is stale regardless of file times."""
+    try:
+        mj = json.loads((Path(root).parent / "model.json").read_text())
+        img_cfg = mj.get("imaging") or {}
+    except (OSError, ValueError):
+        img_cfg = {}
+    blob = json.dumps(img_cfg, sort_keys=True).encode()
+    blob += Path(imaging.__file__).read_bytes()
+    return hashlib.md5(blob).hexdigest()
+
+
+def rebuild_crops(root, labels=None, incremental=False):
     """Regenerate stamp/ crops from raw/. Returns (n_stamp, 0), where
     n_stamp counts every crop on disk afterwards (not just ones written).
 
@@ -66,19 +82,32 @@ def rebuild_crops(root, labels=None):
     ~30s of image decoding on the Pi at 1,400 images. None = everything
     (imaging config changes reshape every crop).
 
+    incremental (full-tree runs only): keep any crop newer than its raw
+    source and only decode what's new — a 20-image pull delta stops
+    costing a whole-dataset rebuild. Guarded by a signature of the
+    imaging settings + imaging code stored beside the crops: a mismatch
+    (settings changed, code updated) falls back to the full reshape.
+
     Legacy variant labels (X_crimped / X_noncrimp) still contribute their
     frames to stamp/X — crimp detection itself is retired.
     """
     root = Path(root)
     raw = root / "raw"
     base = root / "stamp"
+    t0 = time.time()
     stamps = (None if labels is None
               else {parse_label(l)[0] for l in labels})
-    if base.exists():
+    sig = _crops_sig(root) if labels is None else None
+    sig_p = base / ".crops_sig"
+    if incremental and (labels is not None or not sig_p.is_file()
+                        or sig_p.read_text() != sig):
+        incremental = False
+    if base.exists() and not incremental:
         for png in base.rglob("*.png"):
             if stamps is None or png.parent.name in stamps:
                 _unlink_retry(png)   # a still-locked file just gets overwritten below
     n_stamp = 0
+    expected = set()
     if raw.is_dir():
         for label_dir in sorted(p for p in raw.iterdir() if p.is_dir()):
             label = label_dir.name
@@ -87,13 +116,34 @@ def rebuild_crops(root, labels=None):
                 continue
             for a_path in sorted(label_dir.glob("*_A.png")):
                 idx = a_path.name.split("_")[0]
+                dst = root / "stamp" / stamp / f"{label}_{idx}_A.png"
+                expected.add(dst)
+                if (incremental and dst.is_file()
+                        and dst.stat().st_mtime >= a_path.stat().st_mtime):
+                    n_stamp += 1
+                    continue
                 frame_a = cv2.imread(str(a_path))
                 if frame_a is None:
+                    expected.discard(dst)
                     continue
-                d = root / "stamp" / stamp
-                d.mkdir(parents=True, exist_ok=True)
-                cv2.imwrite(str(d / f"{label}_{idx}_A.png"), imaging.crop_head(frame_a))
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                cv2.imwrite(str(dst), imaging.crop_head(frame_a))
                 n_stamp += 1
+    if incremental and base.is_dir():
+        # deletions must propagate: sweep crops whose raw source is gone
+        # — but never one saved AFTER this rebuild started (a live
+        # capture filing mid-rebuild lands after our raw walk passed)
+        for png in base.rglob("*.png"):
+            if png not in expected:
+                try:
+                    if png.stat().st_mtime >= t0:
+                        continue
+                except OSError:
+                    continue
+                _unlink_retry(png)
+    if labels is None:
+        sig_p.parent.mkdir(parents=True, exist_ok=True)
+        sig_p.write_text(sig)
     if stamps is not None and base.is_dir():
         # partial rebuild: report the whole tree, same as a full one
         n_stamp = sum(1 for _ in base.rglob("*.png"))

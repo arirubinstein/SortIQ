@@ -11,6 +11,7 @@ Usage: python webui/server.py [--port 5000] [--data data/real]
 """
 import argparse
 import base64
+import functools
 import itertools
 import json
 import os
@@ -338,6 +339,29 @@ def open_camera_locked():
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, c["height"])
     if cap.isOpened():
         apply_camera_controls(cap, c.get("controls"))
+        if sys.platform.startswith("linux"):
+            # UVC controls OpenCV can't reach, and that reset at reboot:
+            # the bridge re-enables dynamic framerate on open, which
+            # stretches exposures in the dim nest into motion blur (the
+            # camera honors no manual exposure — bounding the frame
+            # period is the only shutter control we have). Best-effort:
+            # cameras without these controls just say no.
+            dev = _capture_device(c["index"])
+            node = dev if isinstance(dev, str) else f"/dev/video{dev}"
+
+            def _pin_ctrls():
+                try:
+                    subprocess.run(
+                        ("v4l2-ctl", "-d", node, "--set-ctrl",
+                         "exposure_dynamic_framerate=0,"
+                         "power_line_frequency=2"),
+                        capture_output=True, timeout=5)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            # off-thread: a slow v4l2-ctl must never sit inside the
+            # camera lock (a mid-run watchdog reopen would stall the
+            # run loop's captures behind it)
+            threading.Thread(target=_pin_ctrls, daemon=True).start()
         _camera["cap"] = cap
         _camera["opened_t"] = time.monotonic()
         _camera["zoom"] = c.get("zoom") or {"factor": 1.0, "x": 0, "y": 0}
@@ -534,6 +558,37 @@ def api_machine_name():
     return jsonify({"ok": True, "identity": _identity()})
 
 
+# --------- dataset-count cache: the UI refreshes /api/state after every
+# save/move/delete, and each call used to walk every class directory
+# three times over. Counts are now cached; mutating handlers call
+# _counts_dirty(), and a 10s TTL backstops any path that forgets.
+_counts_cache = {}
+_counts_lock = threading.Lock()
+
+
+def _counts(kind, root):
+    key = (kind, str(root))
+    now = time.time()
+    with _counts_lock:
+        hit = _counts_cache.get(key)
+        if hit and now - hit[1] < 10:
+            return hit[0]
+    val = (raw_counts(root) if kind == "raw"
+           else dataset_counts(root / "stamp"))
+    with _counts_lock:
+        _counts_cache[key] = (val, now)
+    return val
+
+
+def _counts_dirty():
+    with _counts_lock:
+        _counts_cache.clear()
+
+
+def _crop_total():
+    return sum(_counts("stamp", DATA_DIR).values())
+
+
 @app.get("/api/state")
 def api_state():
     cfg = load_cfg()
@@ -541,8 +596,8 @@ def api_state():
     models = {"embed": _embed_state()}
     datasets = {}
     for name, root in (("real", DATA_DIR), ("synth", ROOT / "data" / "synth")):
-        datasets[name] = {"stamp": dataset_counts(root / "stamp")}
-    datasets["real"]["raw"] = raw_counts(DATA_DIR)
+        datasets[name] = {"stamp": _counts("stamp", root)}
+    datasets["real"]["raw"] = _counts("raw", DATA_DIR)
     identity = _identity(raw)
     # only the machine (Linux/Pi) opens the camera eagerly to keep the
     # header truthful and the device warm for sorting. A trainer PC must
@@ -682,7 +737,8 @@ def api_model_merge():
         if new_classes:
             write_active_model(raw_cfg)
     load_cfg()
-    n_crops, _ = rebuild_crops(DATA_DIR)
+    n_crops, _ = rebuild_crops(DATA_DIR, incremental=True)
+    _counts_dirty()
     return jsonify({"ok": True, "from": f"{cart}/{src}",
                     "pairs_copied": sum(copied.values()),
                     "per_class": copied, "new_classes": new_classes,
@@ -792,7 +848,8 @@ def api_stamps_remove():
             deleted = delete_label(DATA_DIR, name)
         except ValueError:
             pass
-        rebuild_crops(DATA_DIR)
+        rebuild_crops(DATA_DIR, incremental=True)
+        _counts_dirty()
     return jsonify({"ok": True, "removed": name, "images_deleted": deleted})
 
 
@@ -1305,6 +1362,7 @@ def save_labeled(stamp, frame, center=None):
     stamp_dir.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(stamp_dir / f"{stamp}_{idx:04d}_A.png"),
                 imaging.crop_head(frame, center=center))
+    _counts_dirty()
     return stamp, idx
 
 
@@ -1338,8 +1396,7 @@ def api_save_pair():
         # exact case is already filed". Save anyway overrides (a
         # deliberate capture is refused softly, never silently dropped).
         sh = get_shadow()
-        n_imgs = len(list((DATA_DIR / "stamp" / stamp).glob("*.png"))) \
-            if (DATA_DIR / "stamp" / stamp).is_dir() else 0
+        n_imgs = _counts("stamp", DATA_DIR).get(stamp, 0)
         if sh is not None and stamp != "UNKNOWN" \
                 and n_imgs >= NOVELTY_MIN_IMAGES:
             dup, det, _ = _same_case_in_bank(
@@ -1352,8 +1409,9 @@ def api_save_pair():
                     "duplicate": True, **det}), 400
 
     label, idx = save_labeled(stamp, frame, center)
+    _counts_dirty()
     return jsonify({"ok": True, "saved": label, "index": idx,
-                    "counts": dataset_counts(DATA_DIR / "stamp")})
+                    "counts": _counts("stamp", DATA_DIR)})
 
 
 # ----------------------------------------------------- chained collection ---
@@ -1693,11 +1751,11 @@ def _gallery_exemplars():
     if _gal_ex["mtime"] != mt:
         byc = {}
         try:
-            z = np.load(g, allow_pickle=False)
-            if "g_path" in z.files:
-                for p in z["g_path"]:
-                    c, _, name = str(p).partition("/")
-                    byc.setdefault(c, set()).add(name)
+            with np.load(g, allow_pickle=False) as z:
+                if "g_path" in z.files:
+                    for p in z["g_path"]:
+                        c, _, name = str(p).partition("/")
+                        byc.setdefault(c, set()).add(name)
         except Exception:
             pass
         _gal_ex.update(mtime=mt, byclass=byc)
@@ -1778,6 +1836,10 @@ def api_dataset_images():
                     "gallery_n": len(ex_names)})
 
 
+_tray_cache = {}          # name -> (mtime, model_md5, vec, thumb)
+_tray_lock = threading.Lock()
+
+
 @app.get("/api/tray")
 def api_tray():
     """The set-aside pool ("identify later"), self-clustered by
@@ -1787,16 +1849,39 @@ def api_tray():
     tray = DATA_DIR / "unknown"
     files = sorted(tray.glob("*_A.png")) if tray.is_dir() else []
     sh = get_shadow()
-    items = []
+    md5 = sh.model_md5 if sh is not None else None
+    # the tray is append-only between visits: embed + thumbnail each
+    # image once (keyed by mtime + model) instead of re-doing the whole
+    # pool on every view — 200 set-aside cases was ~1 min per open
+    items, live = [], set()
     for f in files:
+        name = f.name
+        try:
+            mt = f.stat().st_mtime
+        except OSError:
+            continue
+        live.add(name)
+        with _tray_lock:
+            hit = _tray_cache.get(name)
+        if hit and hit[0] == mt and hit[1] == md5:
+            items.append({"n": int(name.split("_")[0]),
+                          "vec": hit[2], "thumb": hit[3]})
+            continue
         img = cv2.imread(str(f))
         if img is None:
             continue
-        items.append({"n": int(f.name.split("_")[0]), "path": f,
-                      "img": img})
+        vec = sh.embed(imaging.crop_head(img)) if sh is not None else None
+        thumb = b64_jpg(imaging.head_view(img), max_side=200)
+        with _tray_lock:
+            _tray_cache[name] = (mt, md5, vec, thumb)
+        items.append({"n": int(name.split("_")[0]),
+                      "vec": vec, "thumb": thumb})
+    with _tray_lock:
+        for k in [k for k in _tray_cache if k not in live]:
+            del _tray_cache[k]
     groups = []
     if items and sh is not None:
-        vecs = [sh.embed(imaging.crop_head(it["img"])) for it in items]
+        vecs = [it["vec"] for it in items]
         used = [False] * len(items)
         for i in range(len(items)):
             if used[i]:
@@ -1813,9 +1898,7 @@ def api_tray():
     out = []
     for g in sorted(groups, key=len, reverse=True):
         out.append({"cases": [
-            {"n": items[i]["n"],
-             "thumb": b64_jpg(imaging.head_view(items[i]["img"]),
-                              max_side=200)} for i in g]})
+            {"n": items[i]["n"], "thumb": items[i]["thumb"]} for i in g]})
     return jsonify({"total": len(items), "groups": out})
 
 
@@ -1953,9 +2036,11 @@ def api_dataset_bulk():
         return jsonify({"error": str(e), "processed": processed}), 400
     if stale:
         n_stamp, _ = rebuild_crops(DATA_DIR, labels=stale)
+        _counts_dirty()
     else:
         _sweep_empty_class_dir(label)
-        n_stamp = sum(1 for _ in (DATA_DIR / "stamp").rglob("*.png"))
+        _counts_dirty()
+        n_stamp = _crop_total()
     return jsonify({"ok": True, "processed": processed, "crops": n_stamp})
 
 
@@ -2019,9 +2104,10 @@ def api_dataset_move():
         new_idx = move_pair(DATA_DIR, body["label"], body["index"], body["to"])
     except (ValueError, KeyError) as e:
         return jsonify({"error": str(e)}), 400
+    _counts_dirty()
     if _carry_crop(body["label"], body["index"], body["to"], new_idx):
         _sweep_empty_class_dir(body["label"])
-        n_stamp = sum(1 for _ in (DATA_DIR / "stamp").rglob("*.png"))
+        n_stamp = _crop_total()
     else:                          # crop never built — make just the dest
         n_stamp, _ = rebuild_crops(DATA_DIR, labels={body["to"]})
     return jsonify({"ok": True, "moved_to": f"{body['to']} #{new_idx}",
@@ -2040,11 +2126,13 @@ def api_dataset_delete():
             # the crop dies with its raw — no class-wide rebuild
             _crop_path(body["label"], body["index"]).unlink(missing_ok=True)
             _sweep_empty_class_dir(body["label"])
-            n_stamp = sum(1 for _ in (DATA_DIR / "stamp").rglob("*.png"))
+            _counts_dirty()
+            n_stamp = _crop_total()
             return jsonify({"ok": True, "removed": removed,
                             "class_removed": False,
                             "crops": {"stamp": n_stamp}})
         removed = delete_label(DATA_DIR, body["label"])
+        _counts_dirty()
         with _config_lock:
             raw = active_model_raw()
             if body["label"] in raw["stamp_labels"] and len(raw["stamp_labels"]) > 1:
@@ -2095,6 +2183,7 @@ def api_dataset_rename():
     if renamed:
         load_cfg()
     n_stamp, _ = rebuild_crops(DATA_DIR, labels={src, dst})
+    _counts_dirty()
     return jsonify({"ok": True, "moved": moved, "crops": {"stamp": n_stamp}})
 
 
@@ -2143,15 +2232,28 @@ def api_dataset_scan():
             for label, p in work:
                 if _scan_status["cancel"]:
                     return
-                frame = cv2.imread(str(p))
-                if frame is None:
-                    _scan_status["done"] += 1
-                    continue
-                # leave-one-out: if this image is serving as an exemplar,
-                # mask its own gallery seat so it can't vouch for itself
                 cls = parse_label(label)[0]
                 own = f"{cls}/{label}_{p.name.split('_')[0]}_A.png"
-                r = sh.predict(imaging.crop_head(frame), exclude_path=own)
+                # the gallery bank already holds this crop's vector —
+                # reusing it turns a ~110ms embed (plus a full-frame
+                # decode) into a dict lookup; a bank miss (new image,
+                # model changed, crop regenerated) embeds live as before
+                q = sh.bank_vec(own, DATA_DIR / "stamp" / own)
+                if q is None:
+                    crop_p = DATA_DIR / "stamp" / own
+                    if crop_p.is_file():        # crop beats raw: no find_head
+                        img = cv2.imread(str(crop_p))
+                    else:
+                        frame = cv2.imread(str(p))
+                        img = (imaging.crop_head(frame)
+                               if frame is not None else None)
+                    if img is None:
+                        _scan_status["done"] += 1
+                        continue
+                    q = sh.embed(img)
+                # leave-one-out: if this image is serving as an exemplar,
+                # mask its own gallery seat so it can't vouch for itself
+                r = sh.predict_vec(q, exclude_path=own)
                 # flag only reads live sorting would ACT on: wrong class,
                 # over that class's bar, clear of the runner-up
                 if (r["stamp"] != cls and r["accept"]):
@@ -2213,6 +2315,20 @@ def _dup_gray(path):
     return (img / (np.linalg.norm(img) or 1.0)).ravel()
 
 
+def _crop_sharp(path):
+    """Full-resolution sharpness for one crop — same scale as the
+    capture-time floor (never computed on a resized image)."""
+    img = cv2.imread(str(path))
+    return float(imaging.sharpness(img)) if img is not None else 0.0
+
+
+@functools.lru_cache(maxsize=1024)               # ~36KB/entry, ~37MB cap
+def _dup_gray_cached(path_str, mtime):
+    """mtime-keyed _dup_gray: the novelty gate's nominees repeat heavily
+    across a bulk file of same-class cases."""
+    return _dup_gray(Path(path_str))
+
+
 def _rotstack_gray(img):
     img = cv2.resize(img, (_DUP_SIZE, _DUP_SIZE)).astype(np.float32)
     c = (_DUP_SIZE / 2 - 0.5, _DUP_SIZE / 2 - 0.5)
@@ -2268,7 +2384,16 @@ def _same_case_in_bank(sh, stamp, crop):
     carries bank paths (newer galleries)."""
     if sh.all_vec is None or sh.all_path is None:
         return False, None, None
-    idx = [i for i, c in enumerate(sh.all_cls) if c == stamp]
+    # class->rows index, built once per gallery load (the attribute dies
+    # with the classifier on hot-reload): a 300-case group confirm was
+    # paying a full 8,000-entry scan per case
+    by = getattr(sh, "_bank_by_cls", None)
+    if by is None:
+        by = {}
+        for i, c in enumerate(sh.all_cls):
+            by.setdefault(c, []).append(i)
+        sh._bank_by_cls = by
+    idx = by.get(stamp)
     if not idx:
         return False, None, None
     v = sh.embed(crop)
@@ -2279,7 +2404,11 @@ def _same_case_in_bank(sh, stamp, crop):
         sim = float(sims[o])
         if sim < _NOVELTY_EMBED:
             break
-        cand = _dup_gray(DATA_DIR / "stamp" / sh.all_path[idx[int(o)]])
+        p = DATA_DIR / "stamp" / sh.all_path[idx[int(o)]]
+        try:                          # nominees repeat across a bulk file:
+            cand = _dup_gray_cached(str(p), p.stat().st_mtime)
+        except OSError:
+            cand = None
         if cand is None:
             continue                             # bank image since deleted
         if stack is None:
@@ -2328,19 +2457,26 @@ def api_dataset_dupscan():
                     cls = parse_label(d.name)[0]
                     for p in sorted(d.glob("*_A.png")):
                         idx = p.name.split("_")[0]
-                        crop = (DATA_DIR / "stamp" / cls
-                                / f"{d.name}_{idx}_A.png")
+                        rel = f"{cls}/{d.name}_{idx}_A.png"
+                        crop = DATA_DIR / "stamp" / rel
                         work.append((d.name, int(idx),
-                                     crop if crop.is_file() else p))
+                                     crop if crop.is_file() else p,
+                                     rel if crop.is_file() else None))
             _dup_status["total"] = len(work)
-            by_label = {}                          # label -> [(idx, emb, sharp, path)]
-            for label, idx, path in work:
+            # sharpness is only consumed for images that land in a
+            # VERIFIED group (a handful), so it's computed there — with
+            # banked vectors, stage 1 needs no image decode at all
+            by_label = {}                          # label -> [(idx, emb, None, path)]
+            for label, idx, path, rel in work:
                 if _dup_status["cancel"]:
                     return
-                img = cv2.imread(str(path))
-                if img is not None:
+                emb = sh.bank_vec(rel, path) if rel else None
+                if emb is None:
+                    img = cv2.imread(str(path))
+                    emb = sh.embed(img) if img is not None else None
+                if emb is not None:
                     by_label.setdefault(label, []).append(
-                        (idx, sh.embed(img), imaging.sharpness(img), path))
+                        (idx, emb, None, path))
                 _dup_status["done"] += 1
 
             # stage 2: pixel-verify every embedding-nominated pair
@@ -2407,14 +2543,15 @@ def api_dataset_dupscan():
                 for members in comp.values():
                     if len(members) < 2:
                         continue
-                    ms = sorted(members, key=lambda i: -rows[i][2])
+                    sharp = {i: _crop_sharp(rows[i][3]) for i in members}
+                    ms = sorted(members, key=lambda i: -sharp[i])
                     tight = min(c for i in members
                                 for c in link_corr.get(i, [1.0]))
                     groups.append({
                         "label": label,
                         "keep": rows[ms[0]][0],       # sharpest member
                         "members": [{"index": rows[i][0],
-                                     "sharp": round(float(rows[i][2]), 1)}
+                                     "sharp": round(float(sharp[i]), 1)}
                                     for i in ms],
                         "sim": round(tight, 3)})
             groups.sort(key=lambda g: (-len(g["members"]), g["label"]))
@@ -2494,7 +2631,13 @@ def api_dataset_rebuild():
     changed outside the app (rsync from another machine, sync-tool lock
     leftovers). Idempotent: raw is the source of truth. Synchronous; the
     UI shows a busy state (~20-30s for a 1,400-image dataset on the Pi)."""
-    n_stamp, _ = rebuild_crops(DATA_DIR)
+    # the escape hatch stays an escape hatch: outside changes (rsync
+    # with preserved mtimes) can defeat the freshness check, so the
+    # manual button does the full reshape unless asked not to
+    n_stamp, _ = rebuild_crops(
+        DATA_DIR, incremental=bool((request.get_json(silent=True)
+                                    or {}).get("incremental")))
+    _counts_dirty()
     return jsonify({"ok": True, "crops": {"stamp": n_stamp}})
 
 
@@ -2980,6 +3123,16 @@ def api_code_update():
     """One-click trainer update: make this install byte-identical to the
     machine's deployable code, then restart into it. Every byte is pulled
     and verified before anything on disk is touched."""
+    # the restart at the end kills whatever this instance is doing — a
+    # live sorting run died at case 92 to a docs deploy before this
+    # guard existed. Busy means not now.
+    busy = ("a sorting run" if run_mgr.status().get("running")
+            else "training" if train_status.get("running")
+            else "a gallery rebuild" if _gal_build.get("running") else None)
+    if busy:
+        return jsonify({"error": f"{busy} is active — updating restarts "
+                                 "the app and would kill it; retry when "
+                                 "it finishes"}), 409
     import io
     import tarfile
     import urllib.request
@@ -3029,7 +3182,16 @@ def api_code_update():
         codesync.write_file(ROOT, rel, got[rel])
     for rel in delete:
         codesync.delete_file(ROOT, rel)
-    if codesync.digest(ROOT) != remote["digest"]:
+    # the pull may have replaced codesync itself (new manifest rules);
+    # verify with the freshly written module, not the copy this process
+    # imported at startup — otherwise a rules change can never pass its
+    # own verification and the update wedges one restart short
+    try:
+        import importlib
+        verifier = importlib.reload(codesync)
+    except Exception:
+        verifier = codesync
+    if verifier.digest(ROOT) != remote["digest"]:
         return jsonify({"error": "install doesn't match the machine after "
                                  "the pull (files changed mid-update?) — "
                                  "retry"}), 500
@@ -3077,6 +3239,7 @@ def _relaunch_self():
     os._exit(0)
 
 
+@functools.lru_cache(maxsize=1)      # installed-or-not never changes mid-run
 def _tf_available():
     """Whether this host can train at all (the Pi deliberately can't:
     2GB RAM, inference-only runtime)."""
@@ -3112,12 +3275,30 @@ def _gpu_run():
     return mod
 
 
+def _gpu_job_live():
+    """A GPU job with a running.marker and no exit.marker is (or may
+    be) alive inside the WSL VM — e.g. after a trainer crash + watchdog
+    revival, the detached job survives this process."""
+    jobs = ROOT / "gpu_jobs"
+    if not jobs.is_dir():
+        return False
+    return any((d / "running.marker").exists()
+               and not (d / "exit.marker").exists()
+               for d in jobs.iterdir() if d.is_dir())
+
+
 def _gpu_probe():
     """Full gpu_run preflight (boots the WSL VM, imports TF under the
-    job env). Takes up to ~2 minutes cold — always called on a thread."""
+    job env). Takes up to ~2 minutes cold — always called on a thread.
+
+    The preflight's recovery step is `wsl --shutdown`, which would
+    execute any job living in the VM — so recovery is only permitted
+    when nothing is (or might be) running: a probe against a busy VM
+    that times out must report failure, never amputate."""
     gpu_status["state"] = "probing"
+    safe_to_recover = not train_status["running"] and not _gpu_job_live()
     try:
-        good, checks = _gpu_run().preflight()
+        good, checks = _gpu_run().preflight(recover=safe_to_recover)
         gpu_status.update(state="ready" if good else "failed",
                           checks=checks)
     except Exception as e:
@@ -3126,11 +3307,7 @@ def _gpu_probe():
 
 
 def _crop_count():
-    stamp = DATA_DIR / "stamp"
-    if not stamp.is_dir():
-        return 0
-    return sum(1 for d in stamp.iterdir() if d.is_dir()
-               for _ in d.glob("*.png"))
+    return _crop_total()
 
 
 def _train_estimate():
@@ -3152,6 +3329,10 @@ def api_gpu():
 def api_gpu_probe():
     if not gpu_status["supported"]:
         return jsonify({"error": "no WSL GPU sandbox on this host"}), 400
+    if train_status["running"]:
+        return jsonify({"error": "training is running — probing now "
+                                 "could disturb the job; re-check after "
+                                 "it finishes"}), 409
     if gpu_status["state"] != "probing":
         threading.Thread(target=_gpu_probe, daemon=True).start()
     return jsonify({"ok": True, "state": "probing"})
@@ -3505,6 +3686,116 @@ def api_machines_scan():
     return jsonify({"subnet": f"{base}.0/24", "me": me, "found": found})
 
 
+# ------------------------------------------------------------- fleet ---
+# Every instance can show the whole fleet: the page you're browsing
+# polls its peers SERVER-side (no browser cross-origin games), so the
+# view works from any device against any machine — trainer optional.
+# The status card is deliberately skeletal (no image work, no directory
+# walks) so answering costs nothing mid-run.
+
+def _own_lan_url():
+    import socket as _s
+    s = _s.socket(_s.AF_INET, _s.SOCK_DGRAM)
+    try:                       # routing trick: no packet is actually sent
+        s.connect(("8.8.8.8", 80))
+        return f"http://{s.getsockname()[0]}:5000"
+    finally:
+        s.close()
+
+
+def _fleet_self_status():
+    cfg = load_cfg()
+    ident = _identity()
+    rs = run_mgr.status()
+    bc = rs.get("bin_counts") or {}
+    try:
+        ver = (ROOT / "VERSION").read_text().strip()
+    except OSError:
+        ver = "dev"
+    return {"name": ident["name"], "host": ident["host"],
+            "model": f"{cfg.cartridge}/{cfg.model_name}",
+            "classes": len(cfg.stamp_labels),
+            "camera": ("ok" if _camera["cap"] is not None
+                       else _camera["error"] or "idle"),
+            "board": _console["transport"] is not None,
+            "run": {"running": bool(rs.get("running")),
+                    "capture": bool(rs.get("capture")),
+                    "cases": sum(bc.values()) if bc else 0},
+            "version": ver, "digest": codesync.digest(ROOT),
+            "can_train": _tf_available()}
+
+
+@app.get("/api/fleet/status")
+def api_fleet_status():
+    return jsonify(_fleet_self_status())
+
+
+@app.get("/api/fleet/peers")
+def api_fleet_peers_get():
+    raw = json.loads(CONFIG_PATH.read_text())
+    return jsonify({"peers": raw.get("fleet_peers", [])})
+
+
+@app.post("/api/fleet/peers")
+def api_fleet_peers_set():
+    body = request.get_json() or {}
+    peers = [str(u).rstrip("/") for u in (body.get("peers") or [])
+             if str(u).startswith("http")][:32]
+    with _config_lock:
+        raw = json.loads(CONFIG_PATH.read_text())
+        raw["fleet_peers"] = sorted(set(peers))
+        write_cfg_raw(raw)
+    return jsonify({"ok": True, "peers": raw["fleet_peers"]})
+
+
+@app.get("/api/fleet")
+def api_fleet():
+    """Everyone's status card, self first. Peers answer with a short
+    timeout; the unreachable stay on the list, grayed — which doubles
+    as the is-that-machine-frozen telltale."""
+    import urllib.request
+    from concurrent.futures import ThreadPoolExecutor
+    me = _fleet_self_status()
+    me.update(url=None, reachable=True, same_build=True, me=True)
+    peers = json.loads(CONFIG_PATH.read_text()).get("fleet_peers", [])
+
+    def fetch(url):
+        try:
+            with urllib.request.urlopen(url + "/api/fleet/status",
+                                        timeout=2.5) as r:
+                j = json.loads(r.read())
+            j.update(url=url, reachable=True, me=False,
+                     same_build=j.get("digest") == me["digest"])
+            return j
+        except Exception:
+            return {"url": url, "reachable": False, "me": False}
+    cards = [me]
+    if peers:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            cards += list(ex.map(fetch, peers))
+    return jsonify({"cards": cards})
+
+
+@app.post("/api/fleet/update")
+def api_fleet_update():
+    """Tell a drifted peer to pull code from THIS instance — the
+    direction /api/code/update already speaks, driven server-side so
+    any browser can press the button."""
+    import urllib.request
+    peer = ((request.get_json() or {}).get("peer") or "").rstrip("/")
+    if not peer.startswith("http"):
+        return jsonify({"error": "peer url required"}), 400
+    try:
+        req = urllib.request.Request(
+            peer + "/api/code/update",
+            data=json.dumps({"machine_url": _own_lan_url()}).encode(),
+            headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=300) as r:
+            return jsonify(json.loads(r.read()))
+    except Exception as e:
+        return jsonify({"error": f"peer didn't take the update: {e}"}), 502
+
+
 def _multipart(files):
     """Encode {name: bytes} as multipart/form-data (stdlib-only client)."""
     import uuid
@@ -3658,7 +3949,10 @@ def api_train_remote():
             set_active_model(cart, model)
             img_cfg = man["model_json"].get("imaging") or {}
             imaging.configure(img_cfg)
-            n_crops, _ = rebuild_crops(data_dir)
+            # incremental: only the pull delta gets decoded — the crop
+            # signature (imaging settings + code) still forces a full
+            # reshape when the machine's imaging changed since last pull
+            n_crops, _ = rebuild_crops(data_dir, incremental=True)
 
             train_status["result"] = {
                 "pull_only": True, "files": len(want),
@@ -3972,11 +4266,20 @@ class RunManager:
                 # isn't known, and blind flushing is the one thing this
                 # machine must not do.
                 from sorter.cs72 import cancel_wait
-                WAIT_LIMIT, FLUSH_WAITS, EMPTY_FEEDS = 4, 3, 4
+                WAIT_LIMIT, FLUSH_WAITS, EMPTY_FEEDS = 8, 6, 4
+                # dry mode is no longer a one-way door: the wheel holds at
+                # most ~3 cases past the sensor, so if this many CONSECUTIVE
+                # flush cycles each deliver a real case, the tube is
+                # provably still feeding — the end-of-brass call was a
+                # false alarm (a delivery gap), and the run resumes full
+                # speed instead of walking the rest of the bowl at flush
+                # pace (field incident: 76 cases rode the slow tail)
+                DRY_RESUME = 6
                 waiting = 0
                 prev_slot = 0        # slot of the previous sort/prime (the
                                      # prime force-feeds at the park slot 0)
                 dry = False          # end-of-brass flush loop is running
+                dry_present = 0      # consecutive flush cases with brass
                 empty_left = EMPTY_FEEDS
                 flushed = 0          # cases counted while in DRY mode
                 sorted_n = 0         # local case counter; the writer
@@ -4006,6 +4309,18 @@ class RunManager:
                 writer = threading.Thread(target=_write_jobs, daemon=True)
                 writer.start()
 
+                def note(msg):
+                    # timestamped run-event breadcrumbs: when a run flips
+                    # to flush mode early, events.log says exactly which
+                    # gate reads led there — forensics we lacked when one
+                    # entered 76 cases before true end of brass
+                    try:
+                        with open(run_dir / "events.log", "a") as f:
+                            f.write(time.strftime("%H:%M:%S") + " "
+                                    + msg + "\n")
+                    except OSError:
+                        pass
+
                 def sort_reply():
                     """Await a sort/flush ack: DONE, JAM, WAITING (means
                     FLUSH_WAITS consecutive dry lines) or None (silence)."""
@@ -4018,6 +4333,7 @@ class RunManager:
                             return reply
                         if reply == "WAITING":
                             waits += 1
+                            note(f"gate empty {waits}/{FLUSH_WAITS} (sort ack)")
                             if waits >= FLUSH_WAITS:
                                 return reply
                     return reply
@@ -4040,7 +4356,9 @@ class RunManager:
                         break
                     if line == "WAITING":
                         waiting += 1
+                        note(f"gate empty {waiting}/{WAIT_LIMIT} (idle)")
                         if waiting >= WAIT_LIMIT:
+                            note("run END: out_of_brass (idle waits)")
                             with self.lock:           # dry: end of brass
                                 self.state["end_reason"] = "out_of_brass"
                             break
@@ -4096,6 +4414,23 @@ class RunManager:
                             self.state["end_reason"] = "out_of_brass"
                         break
                     empty_left = EMPTY_FEEDS      # real case: refill budget
+                    if dry:
+                        dry_present += 1
+                        if pipelined and dry_present >= DRY_RESUME:
+                            # brass is provably still flowing — reverse the
+                            # end-of-brass call. Safe re-entry: every flush
+                            # cycle leaves the firmware idle with the
+                            # previous case's slot self-queued, which is
+                            # exactly the arm target the drop-port case
+                            # needs on the next PFEED.
+                            dry = False
+                            waiting = 0
+                            with self.lock:
+                                self.state["flushed"] = flushed
+                            note(f"brass still flowing ({dry_present} "
+                                 f"consecutive flush cases) — false "
+                                 f"end-of-brass, resuming full speed "
+                                 f"after case {sorted_n}")
                     if pipelined and not dry:
                         # SS2 pipelined cycle: the photo is taken, so the
                         # machine can move — this feed's arm target is
@@ -4137,10 +4472,13 @@ class RunManager:
                         # brass: reissue this sort forced and enter the
                         # flush loop.
                         outcome = cancel_wait(transport)
+                        note(f"cancel_wait -> {outcome} (case {sorted_n})")
                         if outcome == "resumed":
                             reply = "DONE"
                         elif outcome == "clean":
                             dry = True
+                            dry_present = 0
+                            note(f"DRY/FLUSH MODE entered after case {sorted_n}")
                             transport.send(f"FLUSH:{prev_slot}:{slot}")
                             reply = sort_reply()
                         else:
@@ -4328,7 +4666,10 @@ def api_run_stop():
 
 @app.get("/api/run/status")
 def api_run_status():
-    return jsonify(run_mgr.status())
+    s = run_mgr.status()
+    if request.args.get("brief"):        # counter-only pollers skip the
+        s = dict(s, recent=[])           # ~200KB of inline thumbnails
+    return jsonify(s)
 
 
 @app.post("/api/run/clear_slots")
@@ -4452,17 +4793,12 @@ def api_run_report(run_id):
         reasons[e["reason"]] = reasons.get(e["reason"], 0) + 1
         stamps[s] = stamps.get(s, 0) + 1
         if e["reason"] in ("ok", "no_bin_mapping"):
-            tp = d / "thumbs" / f"{e['n']:04d}.jpg"
-            thumb = None
-            if tp.exists():
-                thumb = "data:image/jpeg;base64," + \
-                    base64.b64encode(tp.read_bytes()).decode()
             # filing a card consumes its saved frame; the thumb stays, so
             # the case remains ON the report — just no longer fileable
             filed = not (d / "frames" / f"{e['n']:04d}_A.png").exists()
             cases.append({"n": e["n"], "bin": e["bin"], "stamp": e.get("stamp"),
                           "conf": e.get("stamp_conf"), "reason": e["reason"],
-                          "thumb": thumb, "filed": filed})
+                          "thumb": None, "filed": filed})
     bins_out = []
     for b, v in sorted(per_bin.items()):
         confs = sorted(v["confs"])
@@ -4483,10 +4819,18 @@ def api_run_report(run_id):
             duration = round(max(log.stat().st_mtime - start, 0), 1) or None
         except ValueError:
             pass
+    # thumbs only for the slice that ships — a 2,000-case run was
+    # encoding 2,000 jpgs to then discard 1,600 of them
+    cases = cases[:400]
+    for c in cases:
+        tp = d / "thumbs" / f"{c['n']:04d}.jpg"
+        if tp.exists():
+            c["thumb"] = ("data:image/jpeg;base64,"
+                          + base64.b64encode(tp.read_bytes()).decode())
     return jsonify({"run": run_id, "mode": meta.get("mode"),
                     "total": len(entries), "duration_s": duration,
                     "bins": bins_out, "reasons": reasons, "stamps": stamps,
-                    "cases": cases[:400]})
+                    "cases": cases})
 
 
 def _resolve_case_file(a_path, b_path, body):
@@ -4624,10 +4968,9 @@ def api_run_groups(run_id):
             out["runner"] = em["runner"]
             out["runner_sim"] = em.get("runner_sim")
         return out
+    counts = _counts("stamp", DATA_DIR)
     def wellfed(c):
-        cd = DATA_DIR / "stamp" / c
-        return (cd.is_dir()
-                and len(list(cd.glob("*.png"))) >= _WELLFED_MIN_IMAGES)
+        return counts.get(c, 0) >= _WELLFED_MIN_IMAGES
     groups = [{"kind": "class", "label": c, "well_fed": wellfed(c),
                "cases": [card(e, p) for e, p in sorted(cs,
                                                        key=lambda x: x[0]["n"])]}
@@ -4648,10 +4991,39 @@ def api_run_groups(run_id):
     # cluster the remainder by embedding similarity — join against every
     # member (not just the seed), so chains of look-alikes stay together
     if unknown and sh is not None:
-        vecs = []
+        # per-run vector cache: the first review computes each murky
+        # case's embedding once; every later open of the page (and each
+        # regroup after filing pulled-out cases) reads it back instead
+        # of re-embedding the pile. Keyed to the model so an install
+        # invalidates it.
+        vp = d / "case_vecs.npz"
+        vcache = {}
+        if vp.is_file():
+            try:
+                with np.load(vp, allow_pickle=False) as z:
+                    if str(z["model_md5"]) == (sh.model_md5 or ""):
+                        vcache = dict(zip(z["ns"].tolist(), z["vecs"]))
+            except Exception:      # torn/corrupt cache must never 500 the
+                vcache = {}        # review page — it just recomputes
+        vecs, fresh = [], False
         for e, p in unknown:
-            img = cv2.imread(str(p))
-            vecs.append(sh.embed(imaging.crop_head(img)))
+            v = vcache.get(e["n"])
+            if v is None:
+                img = cv2.imread(str(p))
+                v = sh.embed(imaging.crop_head(img))
+                vcache[e["n"]] = v
+                fresh = True
+            vecs.append(v)
+        if fresh:
+            try:
+                tmp = vp.with_suffix(".tmp.npz")
+                np.savez_compressed(
+                    tmp, model_md5=sh.model_md5 or "",
+                    ns=np.array(list(vcache), dtype=np.int64),
+                    vecs=np.stack(list(vcache.values())))
+                os.replace(tmp, vp)        # never leave a torn file behind
+            except OSError:
+                pass                       # cache is an optimization only
         used = [False] * len(unknown)
         for i in range(len(unknown)):
             if used[i]:
@@ -4796,11 +5168,20 @@ def api_system_restart():
                     "eta_s": 12 if what == "app" else 55})
 
 
+_net_cache = {"t": 0.0, "resp": None}
+
+
 @app.get("/api/network/status")
 def api_network_status():
+    # nmcli spawns are slow enough to stack up behind heavier requests
+    # and paint a false "offline" in the header — one probe per 10s
+    if _net_cache["resp"] is not None and time.time() - _net_cache["t"] < 10:
+        return jsonify(_net_cache["resp"])
     ok, out = _nmcli("-t", "-f", "DEVICE,TYPE,STATE,CONNECTION", "device")
     if not ok:
-        return jsonify({"available": False, "reason": out})
+        _net_cache.update(t=time.time(),
+                          resp={"available": False, "reason": out})
+        return jsonify(_net_cache["resp"])
     devices = []
     for line in out.splitlines():
         p = line.split(":")
@@ -4811,7 +5192,9 @@ def api_network_status():
         ok2, out2 = _nmcli("-t", "-f", "IP4.ADDRESS", "device", "show", d["device"])
         d["ip"] = (out2.split(":", 1)[1].split("/")[0]
                    if ok2 and ":" in out2 else None)
-    return jsonify({"available": True, "devices": devices})
+    _net_cache.update(t=time.time(),
+                      resp={"available": True, "devices": devices})
+    return jsonify(_net_cache["resp"])
 
 
 @app.get("/api/network/scan")
