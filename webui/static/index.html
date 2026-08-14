@@ -4766,7 +4766,10 @@ function renderBins() {
     div.className = "binSlot" + (isUM ? " um" : isOF ? " of" : "");
     div.dataset.bin = i;
     const chips = group.map(s => s === "UNMATCHED"
-      ? `<span class="pill bad" style="flex:none">UNMATCHED</span>`
+      ? `<span class="pill" style="flex:none; color:var(--amber);
+           border:1px solid var(--amber); border-radius:999px; padding:1px 10px"
+           title="the catch-all: true rejects land here (and, without an
+           OVERFLOW bin, classified cases with no bin)">UNMATCHED</span>`
       : s === "OVERFLOW"
       ? `<span class="pill" style="flex:none; color:var(--blue);
            border:1px solid var(--blue); border-radius:999px; padding:1px 10px"
