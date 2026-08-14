@@ -241,8 +241,9 @@
   .binSlot.emptybin .binHead .num { background: var(--panel);
     color: var(--dim); border: 1px solid var(--line); }
   .binHead .lbl { font-size: 13.5px; white-space: nowrap; overflow: hidden;
-    text-overflow: ellipsis; }
-  .binHead .lbl.fam { color: var(--brass); }
+    text-overflow: ellipsis; display: none; }
+  #binList.locked .binHead .lbl, .binSlot.emptybin .binHead .lbl {
+    display: inline; }
   .binHead .lbl.dim { color: var(--dim); font-weight: 400; }
   .binSlot .sgCount { font-size: 38px; font-weight: 800; line-height: 1.1; }
   .binSlot.emptybin .sgCount { color: var(--panel); }
@@ -4783,13 +4784,18 @@ function renderBins() {
            data-slot="${i}" data-stamp="${s}"
            style="cursor:pointer; margin-left:5px; opacity:.7">×</a></span>`).join("");
 
-    // header identity: the strongest single label for this slot
+    // header identity — shown ONLY while a run hides the chips (idle,
+    // the chips are the identity; a second label was redundant)
+    const named = group.map(s =>
+      s === "UNMATCHED" ? "UNMATCHED"
+      : s === "OVERFLOW" ? "classified · no bin"
+      : s.startsWith(FAM)
+      ? `${s.slice(FAM.length)} <span style="color:var(--dim); font-weight:400">family</span>`
+      : s).join(" · ");
     const lbl = isUM ? `<span class="lbl" style="color:var(--amber)">UNMATCHED</span>`
       : isOF ? `<span class="lbl" style="color:var(--blue)">classified · no bin</span>`
-      : group.some(s => s.startsWith(FAM))
-      ? `<span class="lbl fam">${group.find(s => s.startsWith(FAM))}</span>`
-      : group.length === 1 ? `<span class="lbl">${group[0]}</span>`
-      : group.length > 1 ? `<span class="lbl">${group[0]} +${group.length - 1}</span>`
+      : group.length
+      ? `<span class="lbl">${named}</span>`
       : `<span class="lbl dim">nothing mapped</span>`;
     if (!group.length) div.classList.add("emptybin");
     const cnt0 = binCountFor(i);
