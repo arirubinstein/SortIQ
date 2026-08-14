@@ -4933,7 +4933,13 @@ function renderBinStats() {
   const bc = (s && s.bin_counts) || {};
   const bsc = (s && s.bin_stamp_counts) || {};
   const maxC = Math.max(1, ...Object.values(bc));
-  const finished = !!(s && !s.running && s.run_id && pollRun._repStats);
+  // "finished" = a loaded report is on offer. It must survive a server
+  // restart (run/status blank, report preloaded by the greet handler),
+  // never belong to a different run than the live tally, and never fire
+  // for a batch capture (those review on the Collect page)
+  const finished = !!(pollRun._repStats && (!s
+    || (!s.running && !s.capture
+        && (!s.run_id || pollRun._repRun === s.run_id))));
   (STATE.bins || []).forEach((g, i) => {
     const st = $(`sgStats${i}`);
     if (!st) return;
@@ -4959,17 +4965,40 @@ function renderBinStats() {
         : cap && pct >= 80 ? "var(--amber)" : "";
       f.parentElement.title = cap ? `${cnt} / ${cap} cases` : "";
     }
+    const isUM = binGroup(g).includes("UNMATCHED");
+    // the catch-all's breakdown holds the model's best GUESS for each
+    // rejected case — say so instead of reading as identified
+    if (isUM && txt) st.title =
+      "best guesses — these cases were rejected, the class is the model's " +
+      "nearest match, not a confirmed read";
     const v = $(`sgView${i}`);
     if (v) {
-      const isUM = binGroup(g).includes("UNMATCHED");
-      if (finished && (cnt || isUM)) {
+      // a bin earns its link from the live count OR from the loaded
+      // report itself — the latter keeps reports reachable after a
+      // server restart, when every live count reads zero
+      const hasRep = !!(pollRun._repHtml && pollRun._repHtml[i]);
+      if (finished && (cnt || isUM || hasRep)) {
         v.style.display = "";
-        v.textContent = isUM ? "review rejects ›" : "view cases ›";
-        v.onclick = isUM
-          ? () => { $("repView").innerHTML = "";
-                    $("btnRevLoad").click();
-                    $("revGrid").scrollIntoView({ behavior: "smooth" }); }
-          : () => showBinReport(i);
+        if (isUM) {
+          // rejects review AND the classified riders' report section —
+          // riders (no_bin_mapping without an OVERFLOW bin, classes
+          // mapped here on purpose) are not rejects and live only in
+          // the report
+          v.innerHTML = `<span class="umRej">review rejects ›</span>${
+            hasRep ? `<span style="color:var(--dim); font-weight:400">
+              &nbsp;·&nbsp;</span><span class="umRode">view bin ›</span>` : ""}`;
+          v.onclick = null;
+          v.querySelector(".umRej").onclick = () => {
+            $("repView").innerHTML = "";
+            $("btnRevLoad").click();
+            $("revGrid").scrollIntoView({ behavior: "smooth" });
+          };
+          const rode = v.querySelector(".umRode");
+          if (rode) rode.onclick = () => showBinReport(i);
+        } else {
+          v.textContent = "view cases ›";
+          v.onclick = () => showBinReport(i);
+        }
       } else v.style.display = "none";
     }
   });
@@ -4991,7 +5020,11 @@ function renderBinStats() {
 function renderSortBar(s) {
   const bar = $("sortBar");
   if (!bar) return;
-  const rs = pollRun._repStats;
+  // report-derived stats only decorate the bar when the cached report is
+  // THIS run's (and never a batch capture's tally)
+  const rs = (s && !s.capture
+              && (!s.run_id || pollRun._repRun === s.run_id))
+    ? pollRun._repStats : null;
   if (s && s.running) {
     bar.innerHTML = `
       <div class="sgStat"><b>${s.sorted}</b><span>sorted</span></div>
@@ -5182,6 +5215,12 @@ async function pollRun() {
   // thumbnails a second when nothing new was sorted. Case numbers
   // restart at 1 every run, so a new run resets the key too.
   if (s.run_id !== pollRun._run) { pollRun._run = s.run_id; pollRun._key = ""; }
+  // a new LIVE run instantly retires the previous run's cached report —
+  // its stats and sections must never dress the new run's tally
+  if (s.running && s.run_id !== pollRun._repRun) {
+    pollRun._repHtml = pollRun._repStats = pollRun._repSim = null;
+    pollRun._repRun = null;
+  }
   const recentKey = last ? s.recent.map(r => r.n).join() : "";
   if (last && recentKey !== pollRun._key) {
     pollRun._key = recentKey;
@@ -5325,13 +5364,8 @@ async function loadReport(runId) {
   if (!run) return;
   try {
     const j = await api(`/api/runs/${run}/report`);
-    $("revGrid").innerHTML = "";              // report and rejects swap, never stack
-    msg("revMsg", "");
-    const binRows = j.bins.map(b => `<tr>
-        <td>${b.bin}</td><td>${b.count}</td>
-        <td>${Math.round(b.median_conf * 100)}%</td>
-        <td>${Object.entries(b.stamps).sort((a, c) => c[1] - a[1])
-              .map(([s, n]) => `${s} ×${n}`).join(", ")}</td></tr>`).join("");
+    // pure DATA loader — paints nothing. An open reject review (typed,
+    // unsaved corrections in revGrid) must survive a report refresh.
     const reasonRow = Object.entries(j.reasons).sort((a, c) => c[1] - a[1])
       .map(([r, n]) => `${REASONS[r] || r}: <b>${n}</b>`).join(" · ");
     const byBin = {};
@@ -5362,6 +5396,13 @@ async function loadReport(runId) {
       });
       const raw = (STATE.bins || [])[+b];
       const mapped = new Set(binClasses(raw));
+      const isUMb = binGroup(raw).includes("UNMATCHED");
+      const isOFb = binGroup(raw).includes("OVERFLOW");
+      // the reject-reason breakdown rides the catch-all bin's section —
+      // that's where the rejected cases it explains actually live
+      const reasons = isUMb && reasonRow ? `
+        <div class="muted" style="margin:8px 0 2px; font-size:12.5px">
+          reject reasons — ${reasonRow}</div>` : "";
       const names = Object.keys(byCls).sort((a, z) =>
         (mapped.has(z) - mapped.has(a)) || (byCls[z].length - byCls[a].length)
         || a.localeCompare(z));
@@ -5383,26 +5424,23 @@ async function loadReport(runId) {
               : "nothing mapped"}</span>
         </div>`;
       if (names.length < 2)
-        return (repHtml[b] = head
+        return (repHtml[b] = head + reasons
           + `<div class="revGrid">${cs.map(caseCard).join("")}</div>`);
-      return (repHtml[b] = head + names.map(s => `
+      return (repHtml[b] = head + reasons + names.map(s => `
         <div class="muted" style="margin:8px 0 2px; font-size:12.5px">
           <b style="color:var(--text)">${s}</b> ×${byCls[s].length}${
-          mapped.has(s) ? "" : ` — no slot of its own, rode the Unmatched bin`}</div>
+          mapped.has(s) ? ""
+          : isOFb ? ` — no bin of its own, routed here`
+          : ` — no slot of its own, rode the Unmatched bin`}</div>
         <div class="revGrid">${byCls[s].map(caseCard).join("")}</div>`).join(""));
     }).join("");
-    // "2h 5m 3s" / "21m 40s" / "48s" — zero units are dropped from the left
-    const fmtDur = s => {
-      s = Math.round(s);
-      const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60);
-      return (h ? `${h}h ` : "") + (h || m ? `${m}m ` : "") + `${s % 60}s`;
-    };
     // no monolithic report page: the slot cards are the report's
-    // entry points — cache each bin's section, paint on demand
+    // entry points — cache each bin's section, paint on demand.
+    // _repRun tags the cache so stale runs can never dress a new tally.
     pollRun._repHtml = repHtml;
     pollRun._repRun = run;
     pollRun._repSim = j.mode === "sim";
-    void binRows; void reasonRow; void grids; void fmtDur;
+    void grids;
     // the top bar's finished-state stats ride the report data
     const confs = j.cases.map(c => c.conf).filter(c => c != null).sort((a, b) => a - b);
     const dur = j.duration_s;
@@ -6194,15 +6232,17 @@ async function restoreModel(file) {
 /* ------------------------------- boot ------------------------------- */
 document.querySelector('nav button[data-tab="run"]').addEventListener("click", () => {
   pollRun(); loadRuns();
-  // greet the page with the newest SORTING run's report when nothing is
-  // on screen (covers a restarted server, whose run/status is blank) —
-  // never over a report or reject review already being read
+  // pre-load the newest SORTING run's report DATA (covers a restarted
+  // server, whose run/status is blank — the slot cards' view-cases
+  // links feed off this cache). loadReport paints nothing, so an open
+  // reject review is safe; skip entirely if this run is already cached
   setTimeout(async () => {
     if (lastRunStatus && lastRunStatus.running) return;
     try {
       const j = await api("/api/runs");
       const r = (j.runs || []).find(x => !x.capture);
-      if (r && await loadReport(r.run)) lastReportShown = r.run;
+      if (r && pollRun._repRun !== r.run && await loadReport(r.run))
+        lastReportShown = r.run;
     } catch {}
   }, 800);
 });

@@ -4123,6 +4123,14 @@ class RunManager:
         with self.lock:
             s = {k: v for k, v in self.state.items() if k != "recent"}
             s["recent"] = list(self.state["recent"])[-10:]
+            # nested dicts must be COPIED under the lock: jsonify iterates
+            # them after release, racing the writer thread's inserts
+            for k in ("counts", "bin_counts"):
+                if isinstance(s.get(k), dict):
+                    s[k] = dict(s[k])
+            if isinstance(s.get("bin_stamp_counts"), dict):
+                s["bin_stamp_counts"] = {k: dict(v) for k, v
+                                         in s["bin_stamp_counts"].items()}
             return s
 
     def start(self, params):
@@ -4614,9 +4622,15 @@ class RunManager:
                             misfiled += 1
                         continue
                     true_bin = cfg.bin_map.get((case.stamp, None))
+                    over = getattr(cfg, "overflow_bin", None)
                     if bin_id == true_bin:
                         correct += 1
                     elif bin_id == cfg.unmatched_bin:
+                        rejected_known += 1
+                    elif (true_bin is None and over is not None
+                          and bin_id == over):
+                        # a no-bin class routed to OVERFLOW is the designed
+                        # behavior — safely set aside, never a misfile
                         rejected_known += 1
                     else:
                         misfiled += 1
@@ -5602,9 +5616,15 @@ def save_machine_settings(update):
                          for v in update[k]][:MAX_SLOTS]
                         if update[k] else None)
             elif k == "bin_sizes":
-                m[k] = ([max(int(v or 0), 0) or None
-                         for v in update[k]][:MAX_SLOTS]
-                        if update[k] else None)
+                # per-slot capacity in cases; garbage entries clear the
+                # slot rather than 500 the save, 100k caps the fantasy
+                def _cap(v):
+                    try:
+                        return min(max(int(v or 0), 0), 100_000) or None
+                    except (TypeError, ValueError):
+                        return None
+                m[k] = ([_cap(v) for v in update[k]][:MAX_SLOTS]
+                        if isinstance(update[k], list) else None)
             else:
                 m[k] = _clamp_machine(k, update[k])
         # slots sanity: enabled slots must exist; at least one must remain
@@ -5678,8 +5698,10 @@ def _sanitize_bins_for_slots(enabled):
         raw = active_model_raw()
         bins = [normalize_bin(b) for b in (raw.get("bins") or [])]
         for i, g in enumerate(bins):
-            stamps = [s for s in g if s != "UNMATCHED"]
-            if stamps and i not in en:
+            # OVERFLOW is a routing token, not a class: a disabled slot
+            # still sheds it, but it never shows up as an "unbinned" stamp
+            stamps = [s for s in g if s not in ("UNMATCHED", "OVERFLOW")]
+            if i not in en and (stamps or "OVERFLOW" in g):
                 bins[i] = ["UNMATCHED"] if "UNMATCHED" in g else []
                 cleared.extend(stamps)
         um = next((i for i, g in enumerate(bins) if "UNMATCHED" in g), None)
@@ -5688,7 +5710,8 @@ def _sanitize_bins_for_slots(enabled):
                 bins[um] = [s for s in bins[um] if s != "UNMATCHED"]
             tgt = enabled[0]
             bins += [[] for _ in range(tgt + 1 - len(bins))]
-            cleared.extend(s for s in bins[tgt] if s != "UNMATCHED")
+            cleared.extend(s for s in bins[tgt]
+                           if s not in ("UNMATCHED", "OVERFLOW"))
             bins[tgt] = ["UNMATCHED"]
             moved = True
         if cleared or moved:
