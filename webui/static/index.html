@@ -231,10 +231,33 @@
   #sortBar .sgLive { display: flex; gap: 8px; align-items: center;
     font-weight: 600; font-size: 13.5px; }
   #sortBar .sgLive .dot { width: 9px; height: 9px; border-radius: 50%; }
-  .binSlot .binHead { display: flex; justify-content: space-between;
-    align-items: center; font-weight: 600; }
-  .binSlot .binChips { display: flex; flex-wrap: wrap; gap: 5px;
-    align-content: flex-start; flex: 1; }
+  .binSlot .binHead { display: flex; gap: 10px; align-items: baseline;
+    font-weight: 600; }
+  .binHead .num { font-size: 12.5px; font-weight: 800; color: var(--bg);
+    background: var(--brass); border-radius: 6px; padding: 1px 9px;
+    flex: none; }
+  .binSlot.um .binHead .num { background: var(--amber); }
+  .binSlot.of .binHead .num { background: var(--blue); }
+  .binSlot.emptybin .binHead .num { background: var(--panel);
+    color: var(--dim); border: 1px solid var(--line); }
+  .binHead .lbl { font-size: 13.5px; white-space: nowrap; overflow: hidden;
+    text-overflow: ellipsis; }
+  .binHead .lbl.fam { color: var(--brass); }
+  .binHead .lbl.dim { color: var(--dim); font-weight: 400; }
+  .binSlot .sgCount { font-size: 38px; font-weight: 800; line-height: 1.1; }
+  .binSlot.emptybin .sgCount { color: var(--panel); }
+  .binSlot .binChips { display: flex; flex-wrap: wrap; gap: 6px;
+    align-content: flex-start; }
+  .binSlot .binChips .chip { border-radius: 999px; padding: 2px 11px;
+    font-size: 12.5px; background: var(--panel);
+    border: 1px solid var(--line); }
+  .binSlot .addGhost { font-size: 12.5px; color: var(--dim);
+    border: 1px dashed var(--line); border-radius: 999px; padding: 2px 11px;
+    cursor: pointer; flex: none; }
+  .binSlot .addGhost:hover { color: var(--text); border-color: var(--dim); }
+  .binSlot .binAdd { display: none; margin-top: 2px; }
+  .binSlot .binAdd.open { display: block; }
+  #binList.locked .binChips, #binList.locked .addGhost { display: none; }
   .binSlot .binAdd { width: 100%; max-width: none; }
   .liveWrap { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
   .liveWrap .caseCol { flex: 0 1 380px; min-width: 280px; }
@@ -1198,7 +1221,7 @@
     <div id="runEndBanner" style="display:none; margin-top:8px; padding:10px 14px;
          border:1px solid var(--brass); border-radius:8px; font-weight:600"></div>
     <div id="runScore"></div>
-    <div id="runOptionsHome"></div>
+    <div id="runOptionsHome" style="max-width:520px; margin-top:6px"></div>
   </div>
   <!-- the slot cards: assignment editor when idle, live dashboard while
        sorting, report table-of-contents when finished -->
@@ -4760,16 +4783,33 @@ function renderBins() {
            data-slot="${i}" data-stamp="${s}"
            style="cursor:pointer; margin-left:5px; opacity:.7">×</a></span>`).join("");
 
-    div.innerHTML = `<div class="binHead"><span>Bin ${i}</span>
-        <span class="n" id="binCount${i}" title="sorted this run">${binCountFor(i)}</span></div>
-      <div class="binChips">${chips}</div>
+    // header identity: the strongest single label for this slot
+    const lbl = isUM ? `<span class="lbl" style="color:var(--amber)">UNMATCHED</span>`
+      : isOF ? `<span class="lbl" style="color:var(--blue)">classified · no bin</span>`
+      : group.some(s => s.startsWith(FAM))
+      ? `<span class="lbl fam">${group.find(s => s.startsWith(FAM))}</span>`
+      : group.length === 1 ? `<span class="lbl">${group[0]}</span>`
+      : group.length > 1 ? `<span class="lbl">${group[0]} +${group.length - 1}</span>`
+      : `<span class="lbl dim">nothing mapped</span>`;
+    if (!group.length) div.classList.add("emptybin");
+    const cnt0 = binCountFor(i);
+    div.innerHTML = `<div class="binHead"><span class="num">${i}</span>${lbl}</div>
+      <div class="binChips">${chips}<span class="addGhost"
+        data-slot="${i}">+ add</span></div>
+      <div class="sgCount" id="binCount${i}"
+        style="${cnt0 ? "" : "display:none"}">${cnt0 || ""}</div>
       <div class="sgStats" id="sgStats${i}"></div>
       <div class="sgFill"><i id="sgFill${i}" style="width:0"></i></div>
       <div class="sgView" id="sgView${i}" style="display:none"></div>
       <input list="binTargets" class="binAdd" data-slot="${i}"
         autocomplete="off" spellcheck="false"
-        placeholder="+ add class, family, UNMATCHED, OVERFLOW…">`;
+        placeholder="class, family, UNMATCHED, OVERFLOW…">`;
     list.appendChild(div);
+  });
+  list.querySelectorAll(".addGhost").forEach(g => g.onclick = () => {
+    const inp = g.closest(".binSlot").querySelector(".binAdd");
+    inp.classList.add("open");
+    inp.focus();
   });
   // one shared datalist serves every card's picker: free classes,
   // unplaced families, and the two special tokens
@@ -4786,6 +4826,9 @@ function renderBins() {
     const g = STATE.bins[+a.dataset.slot];
     g.splice(g.indexOf(a.dataset.stamp), 1);
     saveBins();
+  });
+  list.querySelectorAll(".binAdd").forEach(inp => {
+    inp.onblur = () => { if (!inp.value.trim()) inp.classList.remove("open"); };
   });
   list.querySelectorAll(".binAdd").forEach(inp => inp.onchange = () => {
     const rawV = inp.value.trim();
@@ -5096,8 +5139,12 @@ async function pollRun() {
   }
 
   if (s.slots && s.slots.length) {
-    // live counts on the bin rows
-    s.slots.forEach(sl => { const c = $("binCount" + sl.slot); if (c) c.textContent = sl.count; });
+    // live counts on the bin cards (jumbo number appears with count)
+    s.slots.forEach(sl => {
+      const c = $("binCount" + sl.slot);
+      if (c) { c.textContent = sl.count || "";
+               c.style.display = sl.count ? "" : "none"; }
+    });
     // if auto-assign changed the map, pull it into the (editable) bin list.
     // ONLY during an auto-assign run: outside one, the run manager's
     // in-memory slots may be unseeded (fresh server) and syncing from
