@@ -11,7 +11,7 @@
   :root {
     --bg: #14171c; --panel: #1d2229; --panel2: #242b34; --line: #313a46;
     --text: #d7dde5; --dim: #8a95a3; --brass: #d4a94f; --green: #4cc46a;
-    --red: #e2574f; --amber: #e0a63c; --blue: #5aa2e0;
+    --red: #e2574f; --amber: #e0a63c; --blue: #5aa2e0; --um: #ff8c1a;
   }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.5 system-ui, "Segoe UI", sans-serif;
@@ -206,7 +206,7 @@
   .binSlot { display: flex; flex-direction: column; gap: 8px; min-height: 148px;
     border: 1px solid var(--line); border-radius: 11px; padding: 12px 14px;
     background: var(--panel2); transition: box-shadow .25s, border-color .25s; }
-  .binSlot.um { border-color: var(--amber); }
+  .binSlot.um { border-color: var(--um); }
   .binSlot.of { border-color: var(--blue); }
   .binSlot.drop { border-color: var(--brass);
     box-shadow: 0 0 0 1px var(--brass), 0 0 22px rgba(212,169,79,.28); }
@@ -215,7 +215,7 @@
   .binSlot .sgFill { height: 4px; border-radius: 2px; background: var(--panel);
     overflow: hidden; }
   .binSlot .sgFill i { display: block; height: 100%; background: var(--brass); }
-  .binSlot.um .sgFill i { background: var(--amber); }
+  .binSlot.um .sgFill i { background: var(--um); }
   .binSlot .sgView { font-size: 12.5px; color: var(--brass); font-weight: 600;
     cursor: pointer; }
   .binSlot .sgView:hover { text-decoration: underline; }
@@ -236,7 +236,7 @@
   .binHead .num { font-size: 12.5px; font-weight: 800; color: var(--bg);
     background: var(--brass); border-radius: 6px; padding: 1px 9px;
     flex: none; }
-  .binSlot.um .binHead .num { background: var(--amber); }
+  .binSlot.um .binHead .num { background: var(--um); }
   .binSlot.of .binHead .num { background: var(--blue); }
   .binSlot.emptybin .binHead .num { background: var(--panel);
     color: var(--dim); border: 1px solid var(--line); }
@@ -4766,8 +4766,8 @@ function renderBins() {
     div.className = "binSlot" + (isUM ? " um" : isOF ? " of" : "");
     div.dataset.bin = i;
     const chips = group.map(s => s === "UNMATCHED"
-      ? `<span class="pill" style="flex:none; color:var(--amber);
-           border:1px solid var(--amber); border-radius:999px; padding:1px 10px"
+      ? `<span class="pill" style="flex:none; color:var(--um);
+           border:1px solid var(--um); border-radius:999px; padding:1px 10px"
            title="the catch-all: true rejects land here (and, without an
            OVERFLOW bin, classified cases with no bin)">UNMATCHED</span>`
       : s === "OVERFLOW"
@@ -4795,7 +4795,7 @@ function renderBins() {
       : s.startsWith(FAM)
       ? `${s.slice(FAM.length)} <span style="color:var(--dim); font-weight:400">family</span>`
       : s).join(" · ");
-    const lbl = isUM ? `<span class="lbl" style="color:var(--amber)">UNMATCHED</span>`
+    const lbl = isUM ? `<span class="lbl" style="color:var(--um)">UNMATCHED</span>`
       : isOF ? `<span class="lbl" style="color:var(--blue)">classified · no bin</span>`
       : group.length
       ? `<span class="lbl">${named}</span>`
