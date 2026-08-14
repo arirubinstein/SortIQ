@@ -222,6 +222,14 @@
     overflow: hidden; }
   .binSlot .sgFill i { display: block; height: 100%; background: var(--brass); }
   .binSlot.um .sgFill i { background: var(--um); }
+  .binSlot .capRow { font-size: 11.5px; color: var(--dim); }
+  .binSlot .capGhost { cursor: pointer;
+    border-bottom: 1px dashed var(--line); }
+  .binSlot .capGhost:hover { color: var(--text); }
+  .binSlot .capIn { display: none; width: 110px; padding: 2px 8px;
+    font-size: 12px; }
+  .binSlot .capIn.open { display: inline-block; }
+  #binList.locked .capRow { display: none; }
   .binSlot .sgView { font-size: 12.5px; color: var(--brass); font-weight: 600;
     cursor: pointer; }
   .binSlot .sgView:hover { text-decoration: underline; }
@@ -4812,6 +4820,7 @@ function renderBins() {
       : `<span class="lbl dim">nothing mapped</span>`;
     if (!group.length) div.classList.add("emptybin");
     const cnt0 = binCountFor(i);
+    const cap = (STATE.bin_sizes || [])[i] || 0;
     div.innerHTML = `<div class="binHead"><span class="num">${i}</span>${lbl}</div>
       <div class="binChips">${chips}<span class="addGhost"
         data-slot="${i}">+ add</span></div>
@@ -4819,11 +4828,27 @@ function renderBins() {
         style="${cnt0 ? "" : "display:none"}">${cnt0 || ""}</div>
       <div class="sgStats" id="sgStats${i}"></div>
       <div class="sgFill"><i id="sgFill${i}" style="width:0"></i></div>
+      <div class="capRow"><span class="capGhost" data-slot="${i}"
+        title="physical capacity in cases — calibrates the fill bar">${
+        cap ? `bin size · ${cap}` : "set bin size"}</span><input type="number"
+        class="capIn" data-slot="${i}" min="0" step="10"
+        value="${cap || ""}" placeholder="cases"></div>
       <div class="sgView" id="sgView${i}" style="display:none"></div>
       <input list="binTargets" class="binAdd" data-slot="${i}"
         autocomplete="off" spellcheck="false"
         placeholder="class, family, UNMATCHED, OVERFLOW…">`;
     list.appendChild(div);
+  });
+  list.querySelectorAll(".capGhost").forEach(g => g.onclick = () => {
+    g.style.display = "none";
+    const inp = g.closest(".capRow").querySelector(".capIn");
+    inp.classList.add("open");
+    inp.focus();
+    inp.select();
+  });
+  list.querySelectorAll(".capIn").forEach(inp => {
+    inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); };
+    inp.onblur = () => saveBinSize(inp);
   });
   list.querySelectorAll(".addGhost").forEach(g => g.onclick = () => {
     const inp = g.closest(".binSlot").querySelector(".binAdd");
@@ -4915,12 +4940,25 @@ function renderBinStats() {
     const cnt = +bc[String(i)] || 0;
     const parts = Object.entries(bsc[String(i)] || {})
       .sort((a, b) => b[1] - a[1]);
-    st.textContent = parts.length
+    const txt = parts.length
       ? parts.slice(0, 3).map(([c, n2]) => `${c} ${n2}`).join(" · ")
         + (parts.length > 3 ? ` · +${parts.length - 3} more` : "")
       : "";
+    // a calibrated bin fills toward its own capacity (amber at 80%, red
+    // when full); uncalibrated bins keep the relative-to-busiest widths
+    const cap = (STATE.bin_sizes || [])[i] || 0;
+    const full = cap && cnt >= cap;
+    st.textContent = txt;               // class names stay text, not HTML
+    if (full) st.insertAdjacentHTML("afterbegin",
+      `<b style="color:var(--red)">FULL</b>${txt ? " · " : ""}`);
     const f = $(`sgFill${i}`);
-    if (f) f.style.width = cnt ? Math.max(4, 100 * cnt / maxC) + "%" : "0";
+    if (f) {
+      const pct = cap ? Math.min(100, 100 * cnt / cap) : 100 * cnt / maxC;
+      f.style.width = cnt ? Math.max(4, pct) + "%" : "0";
+      f.style.background = full ? "var(--red)"
+        : cap && pct >= 80 ? "var(--amber)" : "";
+      f.parentElement.title = cap ? `${cnt} / ${cap} cases` : "";
+    }
     const v = $(`sgView${i}`);
     if (v) {
       const isUM = binGroup(g).includes("UNMATCHED");
@@ -5001,6 +5039,20 @@ function renderSortBar(s) {
           onclick="$('btnRunStart').click()">▶ Start</button>
       </div>`;
   }
+}
+
+// bin size = physical capacity in cases. Machine-scoped (it describes the
+// tray on the table, not the model), so it survives model switches.
+async function saveBinSize(inp) {
+  const i = +inp.dataset.slot;
+  const v = Math.max(0, Math.round(+inp.value || 0));
+  const sizes = STATE.bins.map((_, k) =>
+    k === i ? (v || null) : (STATE.bin_sizes || [])[k] || null);
+  try {
+    await postJson("/api/machine/settings", { bin_sizes: sizes });
+    STATE.bin_sizes = sizes;
+  } catch (e) { msg("clMsg", e.message, false); }
+  renderBins();
 }
 
 async function saveBins() {

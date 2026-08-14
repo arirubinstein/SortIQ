@@ -614,6 +614,7 @@ def api_state():
         "families": cfg.families,
         "bins": cfg.bins,
         "bin_count": cfg.bin_count,
+        "bin_sizes": (raw.get("machine") or {}).get("bin_sizes") or [],
         "slots_enabled": cfg.slots_enabled,
         "unmatched_bin": cfg.unmatched_bin,
         "floors": cfg.floors,
@@ -5459,6 +5460,9 @@ MACHINE_DEFAULTS = {"feed_speed": 94, "feed_steps": 60, "sort_speed": 94,
                     "air_drop_signal_ms": 100, "air_drop_post_delay": 100,
                     "motor_standby": 0, "camera_led": 200,
                     "slots_total": 8, "slots_enabled": None,   # None = all
+                    # per-slot physical capacity in cases; None/0 entries =
+                    # uncalibrated (fill bars fall back to relative widths)
+                    "bin_sizes": None,
                     "init_on_startup": False,
                     # SortIQ firmware fork (7.2.250925.6.1-SS1) knobs.
                     # Stock firmware answers "ok" to the setters and ignores
@@ -5595,6 +5599,10 @@ def save_machine_settings(update):
                 m[k] = sorted({int(s) for s in (update[k] or [])})
             elif k == "slot_positions":
                 m[k] = ([min(max(int(v), 0), SLOTPOS_MAX)
+                         for v in update[k]][:MAX_SLOTS]
+                        if update[k] else None)
+            elif k == "bin_sizes":
+                m[k] = ([max(int(v or 0), 0) or None
                          for v in update[k]][:MAX_SLOTS]
                         if update[k] else None)
             else:
