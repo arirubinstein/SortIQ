@@ -76,6 +76,13 @@ class Config:
                             self.bin_map[(m, None)] = i
         self.unmatched_bin = next((i for i, g in enumerate(self.bins)
                                    if "UNMATCHED" in g), self.bin_count - 1)
+        # OVERFLOW: the optional home for CLASSIFIED cases whose class has
+        # no bin. Assigned, it splits "the model knew what this was but you
+        # gave it nowhere to go" from true rejects — the unmatched tray
+        # then holds only cases that genuinely need human eyes. Unassigned
+        # (None), those cases ride the unmatched bin as before.
+        self.overflow_bin = next((i for i, g in enumerate(self.bins)
+                                  if "OVERFLOW" in g), None)
         self.floors = mj["floors"]
         self.imaging = mj.get("imaging", dict(profiles.DEFAULT_IMAGING))
         # classes the user benched from training (Dataset page checkbox):
@@ -104,11 +111,14 @@ class Config:
 
     def _validate(self):
         problems = []
-        assigned = [s for g in self.bins for s in g if s != "UNMATCHED"]
+        assigned = [s for g in self.bins for s in g
+                    if s not in ("UNMATCHED", "OVERFLOW")]
         if len(assigned) != len(set(assigned)):
             problems.append("a headstamp is assigned to more than one bin")
         if sum("UNMATCHED" in g for g in self.bins) != 1:
             problems.append("exactly one bin must be UNMATCHED")
+        if sum("OVERFLOW" in g for g in self.bins) > 1:
+            problems.append("at most one bin can be OVERFLOW")
         frac = self.imaging.get("pocket_frac", 0.42)
         if not 0.1 <= float(frac) <= 1.0:
             problems.append(f"imaging.pocket_frac {frac} outside 0.1–1.0")

@@ -310,7 +310,13 @@ class EmbedDecider:
             d_extras["views"] = views
         bin_id = self.cfg.bin_map.get((stamp, None))
         if bin_id is None:
-            d = Decision(rej, stamp=stamp, stamp_conf=sim,
+            # a confident read with nowhere to go: the OVERFLOW bin if the
+            # user assigned one, else the unmatched catch-all (legacy).
+            # Either way the reason stays no_bin_mapping — reports keep
+            # telling the truth about WHY it landed there.
+            over = getattr(self.cfg, "overflow_bin", None)
+            d = Decision(over if over is not None else rej,
+                         stamp=stamp, stamp_conf=sim,
                          reason="no_bin_mapping")
             d.extras.update(d_extras)
             return done(d)

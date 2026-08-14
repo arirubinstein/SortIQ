@@ -120,7 +120,7 @@ def clean_bins(raw):
     stamps = set(raw["stamp_labels"])
     fams = set((raw.get("families") or {}).keys())
     raw["bins"] = [[s for s in normalize_bin(b)
-                    if s == "UNMATCHED" or s in stamps
+                    if s in ("UNMATCHED", "OVERFLOW") or s in stamps
                     or (s.startswith("family:")
                         and s[len("family:"):] in fams)]
                    for b in raw.get("bins", [])]
@@ -869,9 +869,12 @@ def api_classes():
             from sorter.config import normalize_bin
             total = int(machine_settings()["slots_total"])
             bins = [normalize_bin(b) for b in body["bins"]][:total]
-            named = [s for g in bins for s in g if s != "UNMATCHED"]
+            named = [s for g in bins for s in g
+                     if s not in ("UNMATCHED", "OVERFLOW")]
             if sum("UNMATCHED" in g for g in bins) != 1:
                 return jsonify({"error": "exactly one bin must be UNMATCHED"}), 400
+            if sum("OVERFLOW" in g for g in bins) > 1:
+                return jsonify({"error": "at most one bin can be OVERFLOW"}), 400
             if len(named) != len(set(named)):
                 return jsonify({"error": "a headstamp can only occupy one bin"}), 400
             fams = set((raw.get("families") or {}).keys())
@@ -4057,7 +4060,8 @@ class RunManager:
         self.slot_stamp_inv = {}        # stamp -> slot:int
         self.state = {"running": False, "finished": False, "run_id": None,
                       "mode": None, "sorted": 0, "rejected": 0, "jams": 0,
-                      "counts": {}, "bin_counts": {}, "recent": [],
+                      "counts": {}, "bin_counts": {}, "bin_stamp_counts": {},
+                      "recent": [],
                       "rate": 0.0, "error": None, "score": None,
                       "auto_assign": False, "slots": [],
                       "end_reason": None,   # "out_of_brass" | "stopped"
@@ -4110,7 +4114,8 @@ class RunManager:
 
     def reset_counters(self):
         with self.lock:
-            self.state.update(sorted=0, rejected=0, jams=0, counts={}, bin_counts={})
+            self.state.update(sorted=0, rejected=0, jams=0, counts={},
+                              bin_counts={}, bin_stamp_counts={})
             self._rebuild_slots()
 
     def status(self):
@@ -4565,6 +4570,11 @@ class RunManager:
                             st["sorted"] = n
                             st["counts"][category] = st["counts"].get(category, 0) + 1
                             st["bin_counts"][str(slot)] = st["bin_counts"].get(str(slot), 0) + 1
+                            if entry.get("stamp"):
+                                bsc = st.setdefault("bin_stamp_counts", {})
+                                k2 = str(slot)
+                                bsc.setdefault(k2, {})
+                                bsc[k2][entry["stamp"]] = bsc[k2].get(entry["stamp"], 0) + 1
                             if is_reject:
                                 st["rejected"] += 1
                             st["recent"].append({**entry, "thumb": thumb})
