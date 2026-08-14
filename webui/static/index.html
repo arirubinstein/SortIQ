@@ -1216,10 +1216,7 @@
         <h3 id="barsHead">How it matched</h3>
         <div id="stampBars"></div>
       </div>
-    </div>
-    <div class="card" style="flex:0 1 380px; min-width:340px">
-      <h2>Destination bin</h2>
-      <div id="testBin" class="muted">Run a test to see where it lands.</div>
+      <div id="testBin" style="display:none"></div>
     </div>
   </div>
 </section>
@@ -4714,18 +4711,20 @@ function showResult(j) {
   renderTestBin(j.bin);
 }
 
+// destination renders as a line inside the Decision card, not its own card
 function renderTestBin(bin) {
-  if (bin == null) { $("testBin").textContent = "\u2014"; return; }
+  const el = $("testBin");
+  if (bin == null) { el.style.display = "none"; el.innerHTML = ""; return; }
   const holds = binGroup(STATE.bins[bin] || []);
   const label = holds.includes("UNMATCHED") ? "the catch-all"
     : holds.includes("OVERFLOW") ? "classified \u00b7 no bin"
     : holds.map(binEntryLabel).join(", ") || "nothing mapped";
-  $("testBin").innerHTML = `
-    <div style="display:flex; gap:14px; align-items:center">
-      <span style="font-size:44px; font-weight:800; color:var(--bg);
-        background:var(--brass); border-radius:12px; padding:2px 22px">${bin}</span>
-      <div><div style="font-weight:600">slot ${bin}</div>
-        <div class="muted" style="font-size:12.5px">holds: ${label}</div></div>
+  el.style.display = "";
+  el.innerHTML = `<h3>Destination</h3>
+    <div style="display:flex; gap:10px; align-items:center">
+      <span style="font-weight:800; color:var(--bg); background:var(--brass);
+        border-radius:6px; padding:1px 12px">bin ${bin}</span>
+      <span class="muted" style="font-size:12.5px">holds: ${label}</span>
     </div>`;
 }
 
