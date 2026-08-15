@@ -205,6 +205,52 @@
     overflow: hidden; text-overflow: ellipsis; }
   .clsCard .cnt { font-size: 12px; color: var(--dim); }
   .clsCard .tierBar { margin-top: 6px; height: 4px; }
+  /* families as mini bin-cards: name on top, member chips inside */
+  #famList { display: grid; gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+  .famCard { background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; }
+  .famCard .fh { display: flex; gap: 10px; align-items: baseline; }
+  .famCard .fh b { color: var(--brass); font-size: 14px; }
+  .famCard .fh .n { color: var(--dim); font-size: 12px; }
+  .famCard .fh .sp { flex: 1; }
+  .famCard .fh a { cursor: pointer; color: var(--dim); font-size: 12px; }
+  .famCard .fh a:hover { color: var(--text); }
+  .famCard .fchips { display: flex; flex-wrap: wrap; gap: 5px;
+    margin-top: 8px; }
+  .famCard .fchips .fchip { border-radius: 999px; padding: 1px 10px;
+    font-size: 12px; background: var(--panel);
+    border: 1px solid var(--line); }
+  /* ------- machine page: bar + slot badges + console drawer ------- */
+  .machBar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    min-height: 44px; }
+  .machBar .dot { width: 10px; height: 10px; border-radius: 50%;
+    display: inline-block; }
+  .machBar .mst { display: flex; gap: 9px; align-items: center;
+    font-weight: 700; }
+  .numRow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .numB { font-size: 16px; font-weight: 800; min-width: 44px; height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 9px; cursor: pointer; border: 1px solid var(--line);
+    color: var(--dim); background: var(--panel2); padding: 0; font-family: inherit; }
+  .numB:hover { border-color: var(--dim); }
+  .numB.sel { background: var(--brass); color: var(--bg);
+    border-color: var(--brass); }
+  .numB.on { color: var(--text); border-color: var(--brass); }
+  .numB.off { border-style: dashed; opacity: .5; }
+  details.drawer { border: 1px solid var(--line); border-radius: 10px;
+    background: var(--panel); margin-bottom: 18px; }
+  details.drawer summary { cursor: pointer; padding: 12px 18px;
+    font-size: 14px; font-weight: 600; color: var(--dim); list-style: none;
+    display: flex; gap: 12px; align-items: center; }
+  details.drawer summary::-webkit-details-marker { display: none; }
+  details.drawer summary::before { content: "▸"; color: var(--brass); }
+  details.drawer[open] summary::before { content: "▾"; }
+  details.drawer .inner { padding: 0 18px 16px; }
+  /* ------- top bar rides the scroll: hide down, instant return up ------- */
+  #topBar { position: sticky; top: 0; z-index: 600;
+    transition: transform .18s ease; }
+  #topBar.hid { transform: translateY(-100%); }
   .thumbGrid .cell { position: relative; }
   .thumbGrid img { width: 100%; border-radius: 6px; border: 1px solid var(--line);
                    display: block; }
@@ -339,7 +385,7 @@
   .revCard img { width: 100%; border-radius: 6px; }
   .revCard .why { color: var(--amber); font-size: 12.5px; margin: 6px 0; }
   .revCard select, .revCard input[list] { margin-bottom: 6px; }
-  #conLog { height: 460px; overflow-y: auto; background: var(--panel2);
+  #conLog { height: 260px; overflow-y: auto; background: var(--bg);
     border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
     font-size: 12.5px; margin: 0; }
   #conLog .tx { color: var(--brass); }
@@ -398,6 +444,9 @@
 </style>
 </head>
 <body>
+<!-- the top bar (header + nav) rides the scroll: it tucks away going
+     down and returns the instant the page scrolls up -->
+<div id="topBar">
 <header>
   <h1 style="white-space:nowrap">Sort IQ <span style="font-size:10.5px; color:var(--dim);
     font-weight:600; letter-spacing:.08em; text-transform:uppercase;
@@ -433,6 +482,22 @@
          0 0 0-.1-.7L19.4 13zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/>
     </svg></span>
 </header>
+<nav>
+  <div class="seg">
+    <button data-tab="collect" class="active">Collect</button>
+    <button data-tab="train">Train</button>
+    <button data-tab="dataset">Dataset</button>
+    <button data-tab="test">Test</button>
+    <button data-tab="run">Sort</button>
+  </div>
+  <span class="gap"></span>
+  <div class="seg sys">
+    <button data-tab="machine">Machine</button>
+    <button data-tab="fleet">Fleet</button>
+    <button data-tab="docs">Docs</button>
+  </div>
+</nav>
+</div>
 
 <!-- system dialog: version + restart/reboot, behind the gear icon -->
 <div id="sysModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.55);
@@ -615,21 +680,6 @@
   </div>
 </div>
 
-<nav>
-  <div class="seg">
-    <button data-tab="collect" class="active">Collect</button>
-    <button data-tab="train">Train</button>
-    <button data-tab="dataset">Dataset</button>
-    <button data-tab="test">Test</button>
-    <button data-tab="run">Sort</button>
-  </div>
-  <span class="gap"></span>
-  <div class="seg sys">
-    <button data-tab="machine">Machine</button>
-    <button data-tab="fleet">Fleet</button>
-    <button data-tab="docs">Docs</button>
-  </div>
-</nav>
 <main>
 
 <!-- ============================== COLLECT ============================== -->
@@ -1377,63 +1427,64 @@
 
 <!-- =============================== MACHINE ============================== -->
 <section id="machine">
-  <div class="row">
-    <div class="card" style="flex:0 1 330px; min-width:300px">
-      <h2>Connection</h2>
-      <label>Target</label>
-      <select id="conMode">
-        <option value="serial" selected>Real CS7.2 board (serial)</option>
-        <option value="sim">Simulator (virtual CS7.2)</option>
-      </select>
-      <div id="conPortWrap">
-        <label>Serial port</label>
-        <input type="text" id="conPort" placeholder="/dev/ttyUSB0 (9600 baud)">
-      </div>
-      <div style="margin-top:12px; display:flex; gap:10px">
+  <!-- 1 · the machine bar: connection is STATE, not a card. Offline, the
+       form lives inline; connected, it folds into a summary line. -->
+  <div class="card">
+    <div class="machBar">
+      <span class="mst" id="machState" style="color:var(--dim)">
+        <span class="dot" id="machDot" style="background:var(--dim)"></span>
+        OFFLINE</span>
+      <span id="machConnForm" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; flex-shrink:0">
+        <select id="conMode" style="width:200px">
+          <option value="serial" selected>CS7.2 board (serial)</option>
+          <option value="sim">Simulator (virtual)</option>
+        </select>
+        <span id="conPortWrap">
+          <input type="text" id="conPort" placeholder="/dev/ttyUSB0 (9600)"
+                 style="width:175px">
+        </span>
         <button class="primary" id="btnConConnect">Connect</button>
-        <button class="ghost faded" id="btnConDisc">Disconnect</button>
-      </div>
-      <div class="msg" id="conMsg"></div>
-      <h3>Test</h3>
-      <button class="ghost" id="btnTestFeed">Test feed</button>
-      <div style="color:var(--dim); font-size:12.5px; margin:10px 0 4px">sort to</div>
-      <div id="sortBtns" style="display:grid; grid-template-columns:repeat(4, 46px); gap:6px"></div>
-      <div class="muted" style="font-size:12px; margin-top:6px">
-        click a slot to sort there now — Test feed keeps dropping cases at the highlighted slot
-      </div>
-      <h3 style="margin-top:20px">Bring-up</h3>
-      <div style="display:flex; flex-wrap:wrap; gap:8px">
-        <button class="ghost conCmd" data-cmd="homefeeder">Home feeder</button>
-        <button class="ghost conCmd" data-cmd="homesorter">Home sorter</button>
-        <button class="ghost conCmd" data-cmd="getconfig">Get config</button>
-        <button class="ghost conCmd" data-cmd="ping">Ping</button>
-        <button class="ghost conCmd" data-cmd="version">Version</button>
-        <button class="ghost conCmd danger" data-cmd="stop"
-          title="Cancels whatever is pending — a feed waiting on the brass sensor, or a running test cycle. Not an e-stop: the move in progress finishes first.">
-          Stop / cancel feed</button>
-      </div>
-      <div class="muted" style="margin-top:10px; font-size:12px">
-        Speaks the CS7.2 firmware protocol — for hardware bring-up.
-        Raw commands: use the terminal under the Protocol log.
-      </div>
+      </span>
+      <span id="machMeta" class="muted" style="font-size:13px"></span>
+      <span style="flex:1"></span>
+      <button class="ghost conCmd danger" data-cmd="stop"
+        title="Cancels whatever is pending — a feed waiting on the brass sensor, or a running test cycle. Not an e-stop: the move in progress finishes first.">
+        Stop / cancel</button>
+      <button class="ghost faded" id="btnConDisc">Disconnect</button>
     </div>
-    <div class="card" style="flex:0 1 430px; min-width:370px">
-      <h2>Slots</h2>
-      <div class="muted" style="margin-bottom:8px; font-size:12px">
-        How many chutes the sorter has, and which slots are enabled.
-        Sorting and auto-assign use only the checked slots. Unchecking a
-        slot disables it: any stamps assigned to it are cleared (not
-        hidden), and UNMATCHED relocates to an enabled slot.
+    <div class="msg" id="conMsg"></div>
+  </div>
+
+  <!-- 2 · slots: the badges are the centerpiece — test feed on top,
+       enable/count below, calibration tucked behind its summary -->
+  <div class="card">
+    <h2>Slots</h2>
+    <div class="numRow">
+      <button class="ghost" id="btnTestFeed">Test feed</button>
+      <span class="muted" style="font-size:12px">drops at</span>
+      <div id="sortBtns" class="numRow"></div>
+      <span class="muted" style="font-size:12px">click a slot to sort there
+        now — Test feed keeps dropping cases at the brass slot</span>
+    </div>
+    <div class="numRow" style="margin-top:18px; align-items:flex-end; gap:26px">
+      <div>
+        <label style="margin:0 0 6px">Enabled slots — click to toggle</label>
+        <div id="msSlotChecks" class="numRow"></div>
       </div>
-      <label>Slots on the machine</label>
-      <input type="number" id="msSlotsTotal" min="1" max="12" style="width:80px">
-      <label style="margin-top:8px">Enabled slots — uncheck to disable</label>
-      <div id="msSlotChecks" style="display:grid; grid-template-columns:repeat(4, 58px); gap:6px"></div>
-      <div style="margin-top:12px; display:flex; gap:8px">
-        <button class="primary" id="btnSlotsSave">Save slots</button>
+      <div>
+        <label style="margin:0 0 6px">On the machine</label>
+        <input type="number" id="msSlotsTotal" min="1" max="12"
+               style="width:76px; height:44px; text-align:center; font-size:16px; font-weight:700">
       </div>
-      <div class="msg" id="msSlotsMsg"></div>
-      <details style="margin-top:12px" class="forkOnly">
+      <button class="primary" id="btnSlotsSave" style="height:44px">Save slots</button>
+    </div>
+    <div class="muted" style="font-size:12px; margin-top:8px">
+      dashed = disabled — its stamps are cleared (not hidden) and UNMATCHED
+      relocates to an enabled slot. Sorting and auto-assign use only the
+      outlined slots.
+    </div>
+    <div class="msg" id="msSlotsMsg"></div>
+    <details style="margin-top:12px" class="forkOnly">
         <summary style="color:var(--dim); font-size:12.5px">Slot calibration (fork firmware) — per-slot arm positions</summary>
         <div class="muted" style="margin:6px 0 8px; font-size:12px">
           Absolute arm position per slot, in µsteps from home (16 = 1 full
@@ -1460,35 +1511,20 @@
         <div class="msg" id="slotCalMsg"></div>
       </details>
     </div>
-    <div class="card flex1">
-      <h2 style="display:flex; align-items:center; gap:10px">Protocol log
-        <span class="muted">(&gt; sent · &lt; received)</span>
-        <span style="flex:1"></span>
-        <button class="ghost" id="btnConPop" style="padding:3px 10px; font-size:12px">Pop out</button></h2>
-      <pre id="conLog">not connected</pre>
-      <div class="ctlRow" style="margin-top:8px">
-        <span style="color:var(--brass); font-family:monospace">&gt;</span>
-        <input type="text" id="conRaw" placeholder="raw firmware command — e.g. sortto:3, getconfig, feedstats"
-               style="flex:1; font-family:monospace">
-        <button class="ghost" id="btnConRaw">Send</button>
-      </div>
-    </div>
-  </div>
-  <div class="row">
-    <div class="card flex1">
-      <h2>Machine settings</h2>
-      <div class="muted" style="margin-bottom:10px; font-size:12px">
-        Stored on the Pi and pushed to the board (the Uno doesn't keep them).
-        Saving while connected applies them immediately.
-      </div>
-      <div class="ctlRow" style="margin-bottom:6px">
-        <label style="margin:0">Board firmware</label>
+
+  <!-- 3 · settings: firmware folded into the header line, knobs fill
+       the width, rare settings stay behind their summaries -->
+    <div class="card">
+      <div class="ctlRow" style="margin-bottom:6px; flex-wrap:wrap">
+        <h2 style="margin:0">Machine settings</h2>
         <select id="msFirmware" style="max-width:220px">
           <option value="stock">Stock CS7.2</option>
           <option value="ss2">SortIQ fork (SS2 — pipelined feed)</option>
         </select>
-        <span class="muted" style="font-size:11.5px">auto-detected on connect —
-        stock hides the fork-only tuning below</span>
+        <span class="muted" style="font-size:11.5px">firmware auto-detected on
+        connect (stock hides the fork-only tuning) · settings are stored on
+        the Pi and pushed to the board — saving while connected applies
+        immediately</span>
       </div>
       <h3>Motion tuning <span class="muted" style="font-weight:normal; font-size:11.5px">— the knobs you tune with brass running</span></h3>
       <div class="msGrid" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:2px 24px">
@@ -1558,7 +1594,36 @@
       </div>
       <div class="msg" id="msMsg"></div>
     </div>
-  </div>
+
+  <!-- 4 · diagnostics drawer: the protocol log and bring-up commands
+       live together, folded until you're actually debugging -->
+  <details class="drawer" id="conDrawer">
+    <summary>Console — protocol log &amp; bring-up
+      <span class="muted" style="font-weight:400">(&gt; sent · &lt; received)</span>
+      <span style="flex:1"></span>
+      <button class="ghost" id="btnConPop"
+        style="padding:3px 10px; font-size:12px">Pop out</button>
+    </summary>
+    <div class="inner">
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px">
+        <button class="ghost conCmd" data-cmd="homefeeder">Home feeder</button>
+        <button class="ghost conCmd" data-cmd="homesorter">Home sorter</button>
+        <button class="ghost conCmd" data-cmd="getconfig">Get config</button>
+        <button class="ghost conCmd" data-cmd="ping">Ping</button>
+        <button class="ghost conCmd" data-cmd="version">Version</button>
+      </div>
+      <pre id="conLog">not connected</pre>
+      <div class="ctlRow" style="margin-top:8px">
+        <span style="color:var(--brass); font-family:monospace">&gt;</span>
+        <input type="text" id="conRaw" placeholder="raw firmware command — e.g. sortto:3, getconfig, feedstats"
+               style="flex:1; font-family:monospace">
+        <button class="ghost" id="btnConRaw">Send</button>
+      </div>
+      <div class="muted" style="margin-top:8px; font-size:12px">
+        Speaks the CS7.2 firmware protocol — for hardware bring-up.
+      </div>
+    </div>
+  </details>
 </section>
 
 <!-- ================================ DOCS ================================ -->
@@ -1938,15 +2003,22 @@ $("btnDsNewClass").onclick = async () => {
 function renderFamilies() {
   const fams = STATE.families || {};
   const names = Object.keys(fams).sort();
+  // mini bin-cards: family name on top, member-class chips inside
   $("famList").innerHTML = names.length
-    ? names.map(n => `<div class="dsRow">
-        <span class="lbl" style="color:var(--brass)">${n}</span>
-        <span class="muted" style="font-size:12px">${fams[n].length} classes:
-          ${fams[n].join(", ")}</span>
-        <button class="ghost" onclick="famEdit('${n.replace(/'/g, "\\'")}')">Edit</button>
-        <button class="ghost danger" onclick="famDelete('${n.replace(/'/g, "\\'")}')">Delete</button>
+    ? names.map(n => `<div class="famCard">
+        <div class="fh"><b>${n}</b>
+          <span class="n">×${fams[n].length}</span><span class="sp"></span>
+          <a class="famEd" data-f="${n}">edit</a>
+          <a class="famDel" data-f="${n}" style="color:var(--red)">delete</a></div>
+        <div class="fchips">${fams[n].map(c =>
+          `<span class="fchip">${c}</span>`).join("")
+          || `<span class="muted" style="font-size:12px">empty family</span>`}</div>
       </div>`).join("")
     : `<div class="muted">no families yet — name one below and pick its members</div>`;
+  document.querySelectorAll(".famEd").forEach(a =>
+    a.onclick = () => famEdit(a.dataset.f));
+  document.querySelectorAll(".famDel").forEach(a =>
+    a.onclick = () => famDelete(a.dataset.f));
   // mid-edit ticks survive background refreshes: a save elsewhere used
   // to reset every checkbox to the stored family
   if ($("famEditor").style.display !== "none"
@@ -5659,6 +5731,7 @@ $("btnConDisc").onclick = async () => {
   await postJson("/api/console/disconnect", {});
   clearTimeout(conTimer);
   msg("conMsg", "disconnected");
+  pollConsole();          // one more pass so the bar folds back to the form
 };
 document.querySelectorAll(".conCmd").forEach(b =>
   b.onclick = () => conSend(b.dataset.cmd));
@@ -5671,9 +5744,8 @@ function renderSortBtns(total) {
   wrap.innerHTML = "";
   for (let i = 0; i < total; i++) {
     const b = document.createElement("button");
-    b.className = i === testSortSlot ? "primary" : "ghost";
+    b.className = "numB" + (i === testSortSlot ? " sel" : "");
     b.textContent = i;
-    b.style.width = "100%";       // uniform cells in the 4-per-row grid
     b.onclick = async () => {
       testSortSlot = i;
       renderSortBtns(testSortTotal);
@@ -5797,21 +5869,26 @@ $("btnGridSpacing").onclick = async () => {
   } catch (e) { msg("slotCalMsg", e.message, false); }
 };
 
+// enabled slots = click-to-toggle number badges (the Sort page's bin
+// numbers) — brass outline on, dashed off; Save slots commits as before
+function slotChecksEnabled() {
+  return [...document.querySelectorAll(".msSlotCb.on")]
+    .map(b => +b.dataset.slot);
+}
 function renderSlotChecks(total, enabled) {
   const en = new Set(enabled);
-  // uniform cells, four per row — mirrors the Connection card's sort-to grid
   $("msSlotChecks").innerHTML = Array.from({ length: total }, (_, s) =>
-    `<label class="inline" style="display:flex; gap:5px; align-items:center;
-       justify-content:flex-start; margin:0; width:100%;
-       color:var(--text); font-size:13px">
-       <input type="checkbox" class="msSlotCb" data-slot="${s}" ${en.has(s) ? "checked" : ""}
-              style="accent-color:var(--brass)"> ${s}</label>`).join("");
+    `<button class="numB msSlotCb ${en.has(s) ? "on" : "off"}"
+       data-slot="${s}">${s}</button>`).join("");
+  document.querySelectorAll(".msSlotCb").forEach(b => b.onclick = () => {
+    b.classList.toggle("on");
+    b.classList.toggle("off");
+  });
 }
 $("msSlotsTotal").onchange = () => {
   const total = Math.min(Math.max(+$("msSlotsTotal").value || 8, 1), 30);
   $("msSlotsTotal").value = total;
-  const en = [...document.querySelectorAll(".msSlotCb:checked")]
-    .map(c => +c.dataset.slot).filter(s => s < total);
+  const en = slotChecksEnabled().filter(s => s < total);
   renderSlotChecks(total, en.length ? en : Array.from({ length: total }, (_, s) => s));
 };
 
@@ -5847,8 +5924,7 @@ $("btnMsSave").onclick = async () => {
 };
 $("btnSlotsSave").onclick = async () => {
   const body = { slots_total: +$("msSlotsTotal").value,
-                 slots_enabled: [...document.querySelectorAll(".msSlotCb:checked")]
-                                  .map(c => +c.dataset.slot) };
+                 slots_enabled: slotChecksEnabled() };
   if (!body.slots_enabled.length)
     return msg("msSlotsMsg", "at least one slot must be enabled", false);
   try {
@@ -6165,6 +6241,17 @@ async function pollConsole() {
   $("btnConConnect").classList.toggle("faded", connected);
   $("btnConDisc").classList.toggle("faded", !connected);
   if (connected) syncConMode(j.mode);
+  // the machine bar wears the connection: dot + summary when connected,
+  // the connect form when not
+  $("machDot").style.background = connected ? "var(--green)" : "var(--dim)";
+  $("machDot").style.boxShadow = connected ? "0 0 8px var(--green)" : "";
+  $("machState").style.color = connected ? "var(--green)" : "var(--dim)";
+  $("machState").lastChild.textContent = connected ? " CONNECTED" : " OFFLINE";
+  $("machConnForm").style.display = connected ? "none" : "flex";
+  $("machMeta").textContent = !connected ? ""
+    : j.mode === "serial"
+    ? `CS7.2 board · ${$("conPort").value.trim() || "/dev/ttyUSB0"} · 9600`
+    : "Simulator (virtual CS7.2)";
   const html = connected
     ? j.log.map(l =>
         `<span class="${l.dir === ">" ? "tx" : "rx"}">${l.t} ${l.dir} ${l.line}</span>`).join("\n")
@@ -6197,7 +6284,12 @@ function setConDock(open) {
   $("btnConPop").textContent = open ? "Close monitor" : "Pop out";
   if (open) pollConsole();
 }
-$("btnConPop").onclick = () => setConDock(!conDockOpen);
+$("btnConPop").onclick = e => {
+  // the button lives inside the drawer's <summary> — don't also toggle it
+  e.preventDefault();
+  e.stopPropagation();
+  setConDock(!conDockOpen);
+};
 $("conDockClose").onclick = () => setConDock(false);
 $("conDockMin").onclick = () => {
   const min = $("conDockBody").style.display !== "none";
@@ -6342,6 +6434,19 @@ document.querySelector('nav button[data-tab="run"]').addEventListener("click", (
   }, 800);
 });
 document.querySelector('nav button[data-tab="machine"]').addEventListener("click", pollConsole);
+
+// the top bar rides the scroll: tucks away heading down, returns the
+// instant the page moves up (or near the top)
+(() => {
+  const bar = $("topBar");
+  let lastY = window.scrollY;
+  addEventListener("scroll", () => {
+    const y = window.scrollY;
+    if (y < lastY - 1 || y < 80) bar.classList.remove("hid");
+    else if (y > lastY + 1 && y > 140) bar.classList.add("hid");
+    lastY = y;
+  }, { passive: true });
+})();
 refresh().then(() => { pollTrain(); loadArchive(); loadRuns(); pollMachine(); loadNetwork(); loadTrainMachine(); loadGpu(); });
 if (localStorage.getItem("conDock") === "1") setConDock(true);
 </script>
