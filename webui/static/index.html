@@ -247,6 +247,9 @@
   details.drawer summary::before { content: "▸"; color: var(--brass); }
   details.drawer[open] summary::before { content: "▾"; }
   details.drawer .inner { padding: 0 18px 16px; }
+  .slotGrid { display: grid; grid-template-columns: 130px 1fr;
+    gap: 12px 18px; align-items: center; }
+  .slotGrid > label { margin: 0; font-size: 13px; color: var(--dim); }
   /* ------- top bar rides the scroll: hide down, instant return up ------- */
   #topBar { position: sticky; top: 0; z-index: 600;
     transition: transform .18s ease; }
@@ -774,12 +777,6 @@
   <div id="colBatch" style="display:none">
     <div class="card">
       <h2>Batch capture</h2>
-      <div class="muted" style="margin-bottom:8px">
-        Runs the machine at full speed purely to photograph brass: every
-        case is pre-labeled by the model and dropped in the catch-all bin.
-        When it finishes, confirm whole groups at once below — unknowns
-        arrive pre-clustered so a new stamp is one Name-and-file away.
-      </div>
       <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
         <button id="btnBatchStart">Start batch capture</button>
         <button id="btnBatchStop" class="ghost" style="display:none">Stop</button>
@@ -810,11 +807,6 @@
   <div class="row">
     <div class="card flex1">
       <h2>Camera settings</h2>
-      <div class="muted" style="font-size:12px; margin-bottom:10px">
-        Changed the camera or its look? Capture a fresh batch afterwards and
-        rebuild the gallery — exemplars from your current rig are what make
-        matching accurate. Old images stay useful for training.
-      </div>
       <div id="camPanels">
         <div class="camPanel">
           <h3>Camera</h3>
@@ -938,18 +930,6 @@
           <input type="checkbox" id="trSortN" style="margin:0"> sort by count
         </label>
       </div>
-      <div class="muted" style="margin-bottom:6px">
-        How each headstamp stands in the <b>active model</b>: gallery
-        membership is instant, the training pass sharpens the whole
-        network.
-      </div>
-      <div class="muted" style="font-size:12px; margin-top:8px">
-        Every class with 3+ photos is live in the gallery immediately;
-        classes reach the training pass at 10+ images. More photos and
-        more classes both sharpen the whole model — nothing is benched.
-        Bars fill toward 500; the ticks are the 10-image training gate
-        and the 300-image duplicate gate.
-      </div>
       <div id="trReady" style="margin-top:6px"></div>
       <div class="msg" id="trMsg"></div>
     </div>
@@ -958,24 +938,12 @@
       <div id="noTrainHere" style="display:none; border:1px solid var(--brass);
            border-radius:6px; padding:10px 12px; font-size:12.5px">
         <b>The SortIQ Pi doesn't train — models are trained on a PC.</b>
-        Install the SortIQ trainer on the PC you use to control the sorter
-        (one-time setup, ~5 minutes: <code>docs/TRAINER_SETUP.md</code> in
-        the project).
+        Install the SortIQ trainer on the PC you use to control the sorter.
         <div style="margin-top:10px; display:flex; gap:10px; align-items:center">
           <button class="primary" id="btnTrainModal"
                   style="padding:5px 16px; white-space:nowrap">Train models…</button>
-          <span class="muted" style="font-size:11.5px">the whole flow in
-          one window: sync this dataset to the SortIQ trainer on the PC
-          you're browsing from, train on its GPU or CPU, then install
-          the result back here — you never leave this page</span>
         </div>
         <div style="margin-top:14px; border-top:1px solid var(--line); padding-top:10px">
-          <div class="muted" style="font-size:12px">
-          The first dataset sync copies every image over the network — over
-          Wi-Fi that can take a while. Shortcut: copy the dataset to a
-          <b>USB stick</b> here, then drop the stick's
-          <code>SortIQ/calibers</code> folder into the repo folder on the
-          PC — the sync then just verifies it in seconds.</div>
           <div class="muted" id="dsSize" style="font-size:12px; margin-top:4px"></div>
           <div style="margin-top:8px">
             <button class="ghost" id="btnUsbModal"
@@ -1078,20 +1046,10 @@
 <section id="dataset">
   <div class="card" id="trayCard" style="display:none">
     <h2>Set aside — identify later <span class="muted" id="trayCount"></span></h2>
-    <div class="muted" style="font-size:12px; margin-bottom:8px">
-      Photos filed as "identify later" — grouped by similarity, so copies
-      of the same mystery stamp arrive together. Name a group to create
-      its class and file every photo in one go (the community list in
-      Docs is the naming cheat sheet). This tray exists to be emptied.
-    </div>
     <div id="trayGroups"></div>
   </div>
   <div class="card">
     <h2>Caliber &amp; model</h2>
-    <div class="muted" style="margin-bottom:8px">
-      The active caliber and model own everything below — dataset, crops, and
-      trained weights. Switch to work on a different one, or add a new model.
-    </div>
     <div class="ctlRow" style="gap:14px; align-items:flex-end; flex-wrap:wrap">
       <div>
         <label>Caliber</label>
@@ -1275,7 +1233,7 @@
     <div class="card" style="flex:0 1 340px; min-width:300px">
       <h2>Test an image</h2>
       <div id="testCamBox" style="display:none; margin-bottom:10px">
-        <div class="muted" style="font-size:12.5px">Live camera — what “Classify from camera” will see</div>
+        <div class="muted" style="font-size:12.5px">Live camera</div>
         <img id="testCamStream" class="thumb" alt="camera">
       </div>
       <label>Case-head photo</label>
@@ -1341,10 +1299,6 @@
         <span>Auto-assign trays — fill the empty bins below as new headstamps
           appear (saved automatically); unknown / low-confidence go to the
           UNMATCHED bin</span></label>
-      <div class="muted" style="margin-bottom:8px; font-size:12px">
-        Assign a headstamp to each slot, or leave slots empty for auto-assign.
-        The slot marked <b>UNMATCHED</b> is the catch-all. Changes save automatically.
-      </div>
       <div id="binList"></div>
       <div class="msg" id="clMsg"></div>
   </div>
@@ -1447,9 +1401,6 @@
       </span>
       <span id="machMeta" class="muted" style="font-size:13px"></span>
       <span style="flex:1"></span>
-      <button class="ghost conCmd danger" data-cmd="stop"
-        title="Cancels whatever is pending — a feed waiting on the brass sensor, or a running test cycle. Not an e-stop: the move in progress finishes first.">
-        Stop / cancel</button>
       <button class="ghost faded" id="btnConDisc">Disconnect</button>
     </div>
     <div class="msg" id="conMsg"></div>
@@ -1459,29 +1410,23 @@
        enable/count below, calibration tucked behind its summary -->
   <div class="card">
     <h2>Slots</h2>
-    <div class="numRow">
-      <button class="ghost" id="btnTestFeed">Test feed</button>
-      <span class="muted" style="font-size:12px">drops at</span>
+    <!-- one label column, aligned badge rows — symmetric on purpose -->
+    <div class="slotGrid">
+      <button class="ghost" id="btnTestFeed" style="height:44px"
+        title="drops one case and sorts it to the brass slot — click a number to move the target">Test feed</button>
       <div id="sortBtns" class="numRow"></div>
-      <span class="muted" style="font-size:12px">click a slot to sort there
-        now — Test feed keeps dropping cases at the brass slot</span>
-    </div>
-    <div class="numRow" style="margin-top:18px; align-items:flex-end; gap:26px">
-      <div>
-        <label style="margin:0 0 6px">Enabled slots — click to toggle</label>
-        <div id="msSlotChecks" class="numRow"></div>
-      </div>
-      <div>
-        <label style="margin:0 0 6px">On the machine</label>
+      <label title="click a slot to enable or disable it">Enabled slots</label>
+      <div id="msSlotChecks" class="numRow"></div>
+      <label>On the machine</label>
+      <div class="numRow">
         <input type="number" id="msSlotsTotal" min="1" max="12"
                style="width:76px; height:44px; text-align:center; font-size:16px; font-weight:700">
+        <button class="primary" id="btnSlotsSave" style="height:44px">Save slots</button>
       </div>
-      <button class="primary" id="btnSlotsSave" style="height:44px">Save slots</button>
     </div>
-    <div class="muted" style="font-size:12px; margin-top:8px">
-      dashed = disabled — its stamps are cleared (not hidden) and UNMATCHED
-      relocates to an enabled slot. Sorting and auto-assign use only the
-      outlined slots.
+    <div class="muted" style="font-size:12px; margin-top:10px">
+      dashed = disabled — its stamps are cleared and UNMATCHED relocates;
+      sorting uses only the outlined slots.
     </div>
     <div class="msg" id="msSlotsMsg"></div>
     <details style="margin-top:12px" class="forkOnly">
@@ -1611,6 +1556,9 @@
         <button class="ghost conCmd" data-cmd="getconfig">Get config</button>
         <button class="ghost conCmd" data-cmd="ping">Ping</button>
         <button class="ghost conCmd" data-cmd="version">Version</button>
+        <button class="ghost conCmd danger" data-cmd="stop"
+          title="Cancels whatever is pending — a feed waiting on the brass sensor, or a running test cycle. Not an e-stop: the move in progress finishes first.">
+          Stop / cancel feed</button>
       </div>
       <pre id="conLog">not connected</pre>
       <div class="ctlRow" style="margin-top:8px">
