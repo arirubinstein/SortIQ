@@ -1366,6 +1366,8 @@
     <div class="ctlRow">
       <select id="revRun" style="max-width:320px"></select>
       <button class="ghost" id="btnRevLoad">Load rejects</button>
+      <button class="ghost" id="btnRepView"
+        title="the picked run's full per-bin report, every section at once">View report</button>
     </div>
     <div id="repView"></div>
     <div id="revGrid" class="revGrid"></div>
@@ -5530,6 +5532,24 @@ async function loadReport(runId) {
     return true;
   } catch (e) { msg("revMsg", e.message, false); return false; }
 }
+
+// the picked run's FULL report — every bin section stacked, on demand.
+// Historical runs' only complete view (the cards always serve the
+// newest run); explicit user gesture, so painting over repView is fine
+$("btnRepView").onclick = async () => {
+  const run = $("revRun").value;
+  if (!run) return;
+  if (pollRun._repRun !== run && !(await loadReport(run))) return;
+  $("revGrid").innerHTML = "";
+  const rep = pollRun._repHtml || {};
+  const keys = Object.keys(rep).sort((a, b) => a - b);
+  $("repView").innerHTML = (pollRun._repSim
+    ? `<div class="pill bad" style="margin-top:10px">SIMULATION — synthetic cases</div>` : "")
+    + (keys.length ? keys.map(k => rep[k]).join("")
+       : `<div class="muted" style="margin-top:10px">no classified cases in
+          this run — rejects live behind “Load rejects”</div>`);
+  $("repView").scrollIntoView({ behavior: "smooth", block: "start" });
+};
 
 // paint ONE bin's report section (the slot card's view-cases target)
 function showBinReport(b) {
