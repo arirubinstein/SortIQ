@@ -2603,6 +2603,7 @@ async function dsBulk(action) {
     msg("dsMsg", `${action === "move" ? "Moved" : "Deleted"} ${j.processed} image(s)`, true);
     dsExTouch(dsCur.label, sent);
     dsSel.clear();               // the selection was consumed by the action
+    dsNav.label = null;          // the modal's walk list is now stale too
     await refresh();
     dsView(dsCur.label, 0);
   } catch (e) { msg("dsMsg", e.message, false); }
@@ -2669,11 +2670,18 @@ async function dsResolveTarget(el) {
 // the mislabel-scan modal walks its flagged list
 let dsNav = { label: null, indices: [] };
 
-async function dsDetail(label, index) {
+async function dsDetail(label, index, _retried) {
   try {
-    if (dsNav.label !== label) {
+    // refetch on a fresh class OR when the cached walk went stale (an
+    // index the list doesn't know = something mutated the class outside
+    // this modal) — a wrong list wedges "next" on a ghost image
+    if (dsNav.label !== label || !dsNav.indices.includes(index)) {
       const l = await api(`/api/dataset/images?label=${encodeURIComponent(label)}&list=1`);
       dsNav = { label, indices: l.indices || [] };
+      if (!dsNav.indices.length) return dsCloseDetail();
+      if (!dsNav.indices.includes(index))
+        index = dsNav.indices.reduce((a, b) =>   // nearest survivor
+          Math.abs(b - index) < Math.abs(a - index) ? b : a);
     }
     const esc = label.replace(/'/g, "\\'");
     const pos = dsNav.indices.indexOf(index);
@@ -2705,7 +2713,13 @@ async function dsDetail(label, index) {
             onclick="dsDetail('${esc}', ${next})">next ›</button>
         </div>
       </div>`;
-  } catch (e) { msg("dsMsg", e.message, false); }
+  } catch (e) {
+    // a vanished image (the walk list held an index whose file a bulk
+    // move/delete already took) self-heals: drop the cache, re-enter
+    // once — the refetch lands on the nearest surviving image
+    if (!_retried) { dsNav.label = null; return dsDetail(label, index, true); }
+    msg("dsMsg", e.message, false);
+  }
 }
 
 // after a move/delete, step to the image now occupying this position —
