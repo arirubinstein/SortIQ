@@ -14,12 +14,15 @@ Mac or Windows PC on the same network ([TRAINER_SETUP.md](TRAINER_SETUP.md)).
 caliber and model profile, camera status, and network/IP readout. If
 something's disconnected, it shows there first.
 
-The tabs are numbered in workflow order: **collect** images → **train**
-models → curate the **dataset** → **test** decisions → **run** the sorter.
+The nav reads left to right in workflow order — **Collect** images →
+**Train** models → curate the **Dataset** → **Test** decisions → **Sort**
+— with the system pages (Machine, Fleet, Docs) in their own group on the
+right. The whole top bar tucks away as you scroll down a long page and
+returns the instant you scroll up.
 
 ---
 
-## 1 · Collect — building your dataset
+## Collect — building your dataset
 
 ![Collect tab](img/collect.png)
 
@@ -93,7 +96,7 @@ the exemplars match what the camera now sees.
 
 ---
 
-## 2 · Train — on your trainer PC
+## Train — on your trainer PC
 
 > **How you structure your classes matters more than how long you
 > train.** [TRAINING_GUIDE.md](TRAINING_GUIDE.md) covers the doctrine:
@@ -113,16 +116,19 @@ without ever leaving the machine's UI. (The trainer's own page at
 
 ![Train tab on the trainer PC](img/train-pc.png)
 
-The **Class readiness** list shows every class with its image count.
-Every class with 3+ photos is live in the gallery immediately — sortable
-today, no training needed; classes join the periodic training pass (which
-sharpens the whole network) at 10+ images. Nothing is ever guessed: a
-class too thin to match confidently sorts as *unmatched*. Class names
-are color-coded by where they stand — <span style="color:#e2574f">red
-under 10</span> (can't train yet — the re-photo shopping list),
-<span style="color:#e0a63c">amber at 300+</span> (duplicate gate armed),
-<span style="color:#4cc46a">green at 500+</span> (well-fed) — and the
-list sorts A–Z or by count. While a sync or training runs from the
+**Class readiness** opens with the dataset's health at a glance — four
+jumbo tier counts: <span style="color:#4cc46a">well-fed · 500+</span>,
+<span style="color:#e0a63c">gate armed · 300+</span>, training · 10+,
+and <span style="color:#e2574f">can't train · under 10</span> (the
+re-photo shopping list). Below, every class shows its image count and a
+**bar filling toward 500**, with tick marks at the 10-image training
+gate and the 300-image duplicate gate — a class closing on a gate is
+visible at a glance. Every class with 3+ photos is live in the gallery
+immediately — sortable today, no training needed; classes join the
+periodic training pass (which sharpens the whole network) at 10+
+images. Nothing is ever guessed: a class too thin to match confidently
+sorts as *unmatched*. The list sorts A–Z or by count. While a sync or
+training runs from the
 **Train models…** window, the window stays up on purpose: leave the
 machine idle until the job finishes (one heavy thing at a time).
 
@@ -173,7 +179,7 @@ sorting from 3 photos with no retraining at all.
 
 ---
 
-## 3 · Dataset — curating your classes
+## Dataset — curating your classes
 
 ![Dataset tab](img/dataset.png)
 
@@ -189,19 +195,22 @@ sorting from 3 photos with no retraining at all.
   active one, class by class (new classes are created, the source is
   left untouched; trained models are never merged) — the tool for
   consolidating an experiment's labels back into a main model.
-- **Per class:** **View** opens the gallery (inspect, move mislabeled
-  images between classes, bulk-delete), **Rename** renames — or **merges**
-  if you rename onto an existing class — and **Delete** wipes the class.
-  Class names carry the same red/amber/green count-tier colors as the
-  Train tab (a legend sits above the list), and the list sorts A–Z or
-  by count — count order doubles as the "what needs photos" view.
+- **Per class:** every class is a **card** — name, count, and the same
+  readiness bar as the Train tab. Click a card to open the class's
+  images (inspect, move mislabeled images between classes,
+  bulk-delete). **Rename…** and **Delete class…** sit on the brass
+  banner above the images — rename onto an existing class's name to
+  **merge** into it. The grid sorts A–Z or by count — count order
+  doubles as the "what needs photos" view.
 - **Exemplars** — when viewing a class, a dedicated card shows exactly
   which photos are doing the matching for it (★ picked automatically for
   coverage, 📌 pinned by you). Click a badge to pin a photo permanently
   into the gallery or exclude a bad one; changes take effect at the next
   gallery rebuild.
 - **Families** — group a headstamp's variants (`FC`, `FC DOTS`,
-  `FC PLAIN`…) under one name. On the Sort page the family assigns to a
+  `FC PLAIN`…) under one name; each family renders as a small card with
+  the family name on top and its member classes as chips inside. On the
+  Sort page the family assigns to a
   slot as a single unit, and run reports label the slot by the family.
   Grouping affects bins and reports only — the model still learns and
   reports each variant separately, so classes can multiply for accuracy
@@ -254,7 +263,7 @@ sorting from 3 photos with no retraining at all.
   **remembered**: neither a page reload nor any future scan re-flags a
   pair you've already ruled on. Rebuild the gallery when you're done.
 
-## 4 · Test — one case, every detail
+## Test — one case, every detail
 
 ![Test tab](img/test.png)
 
@@ -271,43 +280,66 @@ SPEER 91% vs BLAZER 89%"). When a sort surprises you, this page is where
 you find out why in ten seconds — and the runner-up trail is how
 mislabeled images get caught.
 
-## 5 · Sort — live sorting
+## Sort — live sorting
 
 ![Run tab](img/run.png)
 
-1. Assign headstamps to slots (or leave slots empty and turn on
-   **auto-assign** — new stamps claim free slots as they appear, and the
-   assignments persist for next time). If you've defined **families**
-   (Dataset page), the add-dropdown also offers them: assigning a family
-   puts every member class in that slot with one pick — including
-   members added to the family later — and a member explicitly assigned
-   to its own slot overrides its family.
-2. **Start**. Each case is photographed, classified, and dropped; per-slot
-   counts tick up live, with the recent-cases feed showing each decision
-   and its confidence.
-3. Anything below the confidence floors goes to the **UNMATCHED** slot —
-   the machine would rather make you re-run a case than put it in the
-   wrong bin.
-4. When the hopper runs dry the run **ends itself**: the last cases still
-   inside the feed wheel are flushed to their correct slots, and you get
-   an end-of-run report. Each bin's section opens with a brass banner
-   showing what that slot was set to hold, and a slot shared by several
-   classes (a few deliberate picks riding the Unmatched slot, say) groups
-   its cases **by class**, with your assigned classes leading and
-   unassigned riders labeled as such.
-5. **Reject review** — every unmatched case was photographed. One click
+The page is a grid of **slot cards** — one card per physical bin — under
+a top bar that follows the machine's state: **Start** when idle, live
+stats and **Stop** while sorting, the finished tally afterwards.
+
+1. **Assign bins on the cards.** Click **+ add** on a card and type —
+   the picker filters as you go and offers classes, **families**
+   (assigning one puts every member class in that slot with one pick,
+   future members included; a member explicitly assigned to its own
+   slot overrides its family), and the two special tokens. Exactly one
+   card is **UNMATCHED** (red) — the catch-all where rejects land.
+   Optionally give a second card **OVERFLOW** (blue): confidently-read
+   stamps that have no bin of their own land there instead of riding
+   the catch-all, so UNMATCHED holds only true rejects. Or leave cards
+   empty and turn on **auto-assign** — new stamps claim free slots as
+   they appear, and the assignments persist for next time.
+2. **Set bin sizes** (optional, once): **set bin size** under a card's
+   fill bar stores that tray's physical capacity. A sized bin's fill
+   bar turns absolute — amber at 80% full, red with a **FULL** flag
+   when the tray needs emptying; hover for the exact count/capacity.
+   Unsized bins show fill relative to the busiest bin. Sizes live in
+   machine settings, so they survive model switches.
+3. **Start.** The grid locks into a live dashboard: jumbo per-card
+   counts, per-class breakdowns, fill bars, and a glow tracking the
+   drops, while the top bar carries sorted / unmatched / jams / rate.
+4. Anything below the confidence floors goes to **UNMATCHED** — the
+   machine would rather make you re-run a case than put it in the
+   wrong bin. (The **Acceptance** slider in the run options shifts
+   every class's bar together; 85% is neutral.)
+5. When the hopper runs dry the run **ends itself**: the last cases
+   still inside the feed wheel are flushed to their correct slots, and
+   the finished bar adds duration, seconds-per-case, and median
+   confidence. The cards become the report's table of contents:
+   **view cases ›** on any card opens that bin's section — a brass
+   banner naming what the slot held, cases grouped by class, assigned
+   classes leading and riders labeled. The UNMATCHED card offers
+   **review rejects ›** and, when classified cases rode the catch-all,
+   **view bin ›** for them.
+6. **Reject review** — every unmatched case was photographed. One click
    labels it into the training data, so your next model learns from
-   exactly what confused this one.
+   exactly what confused this one. For **past runs**, pick one in the
+   review card's dropdown: **View report** paints its complete per-bin
+   report, **Load rejects** its rejects.
 
 ## Machine — connection, calibration, settings
 
 ![Machine tab](img/machine.png)
 
-- **Connection** — connect/disconnect the CS7.2 board, test-feed and
-  test-sort any slot.
-- **Slots** — how many chutes exist and which are enabled. Unchecking a
-  slot disables it: sorting and auto-assign skip it, any stamps assigned
-  to it are cleared, and UNMATCHED relocates if needed.
+- **The machine bar** — the connection as a status line: offline it
+  carries the target, port, and **Connect**; connected it folds to a
+  green dot, the board-and-port summary, and **Disconnect**.
+- **Slots** — one aligned grid of number badges (the same badges as the
+  Sort page's bin cards). **Test feed** drops a case at the brass-filled
+  slot — click any number to sort test feeds there. Below it, the
+  **enabled slots** row: click a badge to toggle it (dashed = disabled:
+  sorting and auto-assign skip it, any stamps assigned to it are
+  cleared, and UNMATCHED relocates if needed), then **Save slots**.
 - **Slot calibration** (SortIQ firmware fork) — jog each slot's arm
   position in microsteps until the chute centers over its funnel; each
   press moves the real arm so you see the true stop.
@@ -324,9 +356,11 @@ mislabeled images get caught.
   delay the blast needs and switches the arm's drop timing to the
   AirDrop drop delay (used instead of Slot drop delay while the mod
   is on); disabling reclaims the delay again.
-- **Protocol log + console** — the raw serial conversation with the board,
-  with a terminal for hand-typed firmware commands. Bring-up and debugging
-  live here.
+- **Console drawer** — folded at the bottom until you need it: the raw
+  serial conversation with the board, the bring-up commands (home
+  feeder/sorter, get config, ping, version, stop/cancel), and a
+  terminal for hand-typed firmware commands. **Pop out** floats the
+  log over any tab.
 
 ## Running more than one machine
 

@@ -74,19 +74,23 @@ as 3 photos).
   full-speed **batch capture** mode that photographs a whole hopper and
   reviews as grouped confirm-cards, and camera setup (zoom, light ring,
   crop geometry).
-- **Train** — class readiness, the installed embedding generation with its
-  gallery stats, dataset mirror from the machine, and restorable archives
-  of every model generation.
-- **Dataset** — classes with counts, full-page image browser, an
-  **Exemplars** card showing exactly which photos do the matching (pin or
-  exclude any), the **set-aside tray** for unknown stamps, a mislabel scan
-  that second-guesses every stored label, and crop/gallery rebuilds.
+- **Train** — dataset health strip and per-class readiness bars, the
+  installed embedding generation with its gallery stats, dataset mirror
+  from the machine, and restorable archives of every model generation.
+- **Dataset** — class cards with readiness bars, full-page image browser,
+  an **Exemplars** card showing exactly which photos do the matching (pin
+  or exclude any), variant **families**, the **set-aside tray** for
+  unknown stamps, a mislabel scan that second-guesses every stored label,
+  and crop/gallery rebuilds.
 - **Test** — run any image through the live decider and see every gate,
-  the closest gallery matches, and the crop the model saw.
-- **Sort** — live sorting: slot assignment (manual or auto-assign as new
-  stamps appear), per-bin counts, homing telemetry, end-of-brass flush that
-  empties the wheel into the correct bins, reject review that turns mistakes
-  into training data.
+  the closest gallery matches, the crop the model saw, and the
+  destination bin.
+- **Sort** — live sorting on slot cards: assignment by class, family, or
+  auto-assign, an optional **OVERFLOW** bin so the catch-all holds only
+  true rejects, live per-bin dashboards with capacity-calibrated fill
+  bars, end-of-brass flush that empties the wheel into the correct bins,
+  per-bin reports, and reject review that turns mistakes into training
+  data.
 - **Machine** — board connection and console, machine settings, slot
   enable/disable, per-slot position calibration (fork firmware), network
   panel.

@@ -47,7 +47,8 @@ you ship updates. Details: [PI_SETUP.md](PI_SETUP.md) Part B.
 ## Step 3 — Connect the machine (~10 min)
 
 1. **Machine tab → Connect** (port `/dev/ttyUSB0`). Expect `Ready` in
-   the protocol log. **Read from board** and adopt its values.
+   the Console drawer's protocol log. **Read from board** and adopt its
+   values.
 2. **Collect tab → Camera setup**: aim and focus the camera using the
    live sharpness number, set the light ring, and **save a preset**.
 3. **Test feed** a few cases from the Machine tab. If captures blur,
@@ -87,9 +88,10 @@ with **no retraining** (they cluster in review; name the cluster once).
 
 ## Step 6 — First sort (~5 min)
 
-1. **Sort tab**: assign headstamps to slots, or enable **auto-assign**
+1. **Sort tab**: type headstamps onto the bin cards (**+ add** on a
+   card — the picker filters as you type), or enable **auto-assign**
    and let stamps claim slots as they appear. Anything uncertain goes to
-   the **UNMATCHED** slot — the machine never guesses.
+   the **UNMATCHED** card — the machine never guesses.
 2. **Start**. When the hopper runs dry the run ends itself, flushes the
    feed wheel, and shows a report — every case reviewable, any mistake
    one click from becoming training data.
@@ -106,8 +108,8 @@ This is the ongoing rhythm that makes the model sharper every week:
 - **Retrain** every few hundred new images via the same Train models…
   flow. Bench numbers before you install; one-click restore if a
   generation disappoints.
-- Check the Dataset tab's class colors: **red** classes (under 10) need
-  photos, **green** (500+) are done — feed the reds.
+- Check the Dataset tab's readiness bars: **red** classes (under 10)
+  need photos, **green** (500+) are well-fed — feed the reds.
 
 That's the whole system. Deeper reading: the illustrated
 [USER_MANUAL.md](USER_MANUAL.md), and the in-app **Docs** tab for the

@@ -106,9 +106,10 @@ rate that costs.
 <tr><td>app → controller</td><td><code>HOME</code></td><td>re-home the feeder and sort disc</td></tr>
 </table>
 <p>
-The <b>Machine</b> tab is a live console for this protocol: connect to the
-real board (or the simulator), press the quick-command buttons or type raw
-lines, and watch both directions of traffic. These are the app-side message
+The <b>Machine</b> tab's Console drawer is a live console for this
+protocol: connect to the real board (or the simulator), press the
+bring-up buttons or type raw lines, and watch both directions of
+traffic. These are the app-side message
 names; the CS7.2 adapter translates them to the board's own commands
 (<code>&lt;n&gt;</code>, <code>xf:</code>, <code>homesorter</code>, …) on the
 wire.
@@ -117,8 +118,10 @@ wire.
 <h1 id="d-training">Growing the dataset — doing it right</h1>
 <p class="docsNote">
 <b>Headstamps and photos</b> are managed on the Collect and Dataset tabs;
-the Sort page assigns each physical bin a headstamp (exactly one bin is
-UNMATCHED, and unassigned headstamps route there too). A class is live in
+the Sort page's bin cards assign each physical bin its headstamps.
+Exactly one bin is <b>UNMATCHED</b> — the catch-all for rejects; stamps
+without a bin of their own ride it too, unless you assign an optional
+<b>OVERFLOW</b> bin to catch them instead. A class is live in
 the <b>gallery</b> — and therefore sortable — from <b>3 photos</b>; it joins
 the periodic <b>training pass</b> (which sharpens the whole network) at 10+.
 </p>
@@ -139,7 +142,12 @@ the periodic <b>training pass</b> (which sharpens the whole network) at 10+.
 <tr><td>300+</td><td>saves are skipped only when <b>pixel-verified as the same physical case already filed</b> (matching scratch pattern at some rotation — re-run brass); distinct cases always file, however alike the stamp looks</td></tr>
 <tr><td>500+</td><td><b>well-fed</b>: batch filing switches from volume to variety — <b>File novel</b> keeps only photos showing the class a genuinely new look and skips routine near-identicals (File all overrides). Hard cases (the "Looks like X" and unknown piles) always file in full — they teach the most.</td></tr>
 </table>
-<p>The Dataset and Train class lists color-code these tiers: <span style="color:var(--red)">red under 10</span>, plain 10–299, <span style="color:var(--amber)">amber 300+</span>, <span style="color:var(--green)">green 500+</span> — sort the list by count and the red tail is your re-photo shopping list.</p>
+<p>The Dataset and Train pages draw these tiers as <b>bars filling toward
+500</b> (tick marks at the 10-image training gate and the 300-image
+duplicate gate): <span style="color:var(--red)">red under 10</span>,
+brass 10–299, <span style="color:var(--amber)">amber 300+</span>,
+<span style="color:var(--green)">green 500+</span> — sort by count and
+the red tail is your re-photo shopping list.</p>
 <p>
 Two ways to collect: the <b>chained capture loop</b> (Collect tab — feed,
 photograph, one keypress per case, with the model pre-selecting labels) and
@@ -216,8 +224,9 @@ and check that class for mislabeled images (Scan for mislabels).
 <ul>
 <li><b>Test tab:</b> classify from the live camera, an upload, or a synthetic
 case. Every gate shows its measured value, the bars show the closest gallery
-matches (winner and runner-up with their similarities), and the disc shows
-the destination bin. A reject explains itself in plain language.</li>
+matches (winner and runner-up with their similarities), and the Decision
+card names the destination bin. A reject explains itself in plain
+language.</li>
 <li><b>Test → Add to training data:</b> when the model gets one wrong, correct
 the label and save it — the images it struggles with are the most valuable
 training data there is. The Test tab is also the mislabel detective: if a

@@ -43,7 +43,7 @@ workflow is two tabs: the machine's app for collecting and sorting, and
    ```
    The first launch may trigger a Windows Firewall prompt — allow access
    on private networks so the trainer can reach the machine.
-5. Browse to `http://localhost:5000` → **2 · Train**.
+5. Browse to `http://localhost:5000` → **Train**.
 6. **Recommended — make it hands-free:** in File Explorer, open the
    `tools` folder inside the SortIQ folder and double-click
    **`trainer_autostart_windows.bat`**. The trainer server then starts
