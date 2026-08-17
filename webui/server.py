@@ -2206,6 +2206,10 @@ _scan_status = {"running": False, "cancel": False, "done": 0, "total": 0,
 def api_dataset_scan():
     if _scan_status["running"]:
         return jsonify({"error": "scan already running"}), 409
+    if run_mgr.status().get("running"):
+        return jsonify({"error": "a sorting run is active — the scan "
+                        "shares the recognizer; wait for the run to "
+                        "end"}), 409
     if get_shadow() is None:
         return jsonify({"error": "no embedding model installed — the scan "
                         "uses it to second-guess the labels"}), 400
@@ -2428,6 +2432,10 @@ def _same_case_in_bank(sh, stamp, crop):
 def api_dataset_dupscan():
     if _dup_status["running"] or _scan_status["running"]:
         return jsonify({"error": "a scan is already running"}), 409
+    if run_mgr.status().get("running"):
+        return jsonify({"error": "a sorting run is active — the scan "
+                        "shares the recognizer; wait for the run to "
+                        "end"}), 409
     if get_shadow() is None:
         return jsonify({"error": "no embedding model installed — the scan "
                         "uses it to compare images"}), 400
@@ -4677,6 +4685,17 @@ run_mgr = RunManager()
 
 @app.post("/api/run/start")
 def api_run_start():
+    # the run loop and the dataset scans share ONE TFLite interpreter —
+    # concurrent invokes trip its internal-reference safety check
+    # (field-hit: a sort started mid-mislabel-scan). Refuse with a reason.
+    if _scan_status["running"]:
+        return jsonify({"error": "the mislabel scan is re-reading the "
+                        "dataset — let it finish (or cancel it on the "
+                        "Dataset tab), then start the run"}), 409
+    if _dup_status["running"]:
+        return jsonify({"error": "the duplicate scan is running — let it "
+                        "finish (or cancel it on the Dataset tab), then "
+                        "start the run"}), 409
     err = run_mgr.start(request.get_json() or {})
     if err:
         return jsonify({"error": err}), 409
@@ -5847,6 +5866,14 @@ def api_machine_test():
 
 @app.post("/api/test")
 def api_test():
+    # same shared-interpreter rule as the run/scan guards: a classify
+    # here during a live run or scan would collide with their invokes
+    if run_mgr.status().get("running"):
+        return jsonify({"error": "a sorting run is active — it owns the "
+                        "recognizer; test after it ends"}), 409
+    if _scan_status["running"] or _dup_status["running"]:
+        return jsonify({"error": "a dataset scan is running — it shares "
+                        "the recognizer; test after it finishes"}), 409
     if request.form.get("synthetic"):
         cfg = load_cfg()
         spec = synth.CaseSpec.random(cfg)
