@@ -88,8 +88,13 @@ python3 -m venv .venv           # needs 3.10+; 3.12 recommended (TensorFlow
    Progress shows throughout.
 3. To retrain, pick a device under **Train a new model** — GPU (about an
    hour, if the WSL sandbox is set up) or CPU (overnight, low priority) —
-   and press **Start training**. The run trains a large teacher network
-   on every crop, then distills the fast student the machine runs. The
+   and press **Start training**. The trainer needs **100+ training crops
+   across the whole dataset** to start a run at all (a dataset-wide
+   floor, separate from any single class's 10-image training threshold);
+   below that, **Start training** refuses with an error naming the crop
+   count — pull more of the dataset or collect more brass first. The run
+   trains a large teacher network on every crop, then distills the fast
+   student the machine runs. The
    result is staged as a **candidate** with its bench numbers; press
    **Install** to archive the current generation (model and gallery
    together — restorable from the Train page) and push the new pair to

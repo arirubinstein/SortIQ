@@ -3989,8 +3989,13 @@ function renderDevicePick() {
     const c = document.querySelector('input[name="devSel"]:not([disabled])');
     if (c) c.checked = true;
   }
-  if (!trainBlocked) $("trainStartNote").textContent =
-    `${(est.crops || 0).toLocaleString()} crops in this dataset`;
+  if (!trainBlocked) {
+    const nCrops = est.crops || 0;
+    $("trainStartNote").textContent = nCrops < 100
+      ? `${nCrops.toLocaleString()} crops in this dataset — needs 100+ to start training`
+      : `${nCrops.toLocaleString()} crops in this dataset`;
+    $("trainStartNote").style.color = nCrops < 100 ? "var(--red)" : "";
+  }
 }
 
 async function loadGpu() {

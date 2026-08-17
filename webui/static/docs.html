@@ -129,8 +129,9 @@ the periodic <b>training pass</b> (which sharpens the whole network) at 10+.
 <h2>Rule 1 — photograph like the machine will see</h2>
 <ul>
 <li>Fix the camera, the case position, and the lighting, and never touch them again mid-dataset.</li>
+<li><b>Zoom and pan onto the headstamp first:</b> push the Collect tab's digital <b>Zoom</b> slider up until the headstamp covers the majority of the frame — a small stamp lost in a wide shot starves the model of pixels — then use <b>Pan left/right</b> and <b>Pan up/down</b> to re-center the primer (pan needs Zoom above 1× to have anything to work with).</li>
 <li>Judge quality in the live crop preview: if you can read the stamp easily, the model can learn it. Dark, etched-looking letters on bright metal beat washed-out glare every time.</li>
-<li>Diffuse the light for reflective nickel cases — point light creates glare that burns out exactly the letters you need.</li>
+<li>Set the <b>light ring brightness</b> so the stamped letters read as crisp dark marks — not blown out by glare, not lost in shadow. Diffuse the light for reflective nickel cases — point light creates glare that burns out exactly the letters you need.</li>
 </ul>
 
 <h2>Rule 2 — quantity targets</h2>
@@ -190,6 +191,11 @@ target="_blank" rel="noopener">docs/TRAINING_GUIDE.md</a>.
 new classes, new photos, pins and exclusions all take effect at the next
 <b>Rebuild gallery</b> — seconds, on either machine (unchanged photos
 reuse their stored vectors; only a fresh model pays full price once).</li>
+<li>A training <b>run needs 100+ crops across the whole dataset</b> to
+start at all — a dataset-wide floor, separate from any single class's
+10-image training threshold. Below it, <b>Start training</b> refuses
+with an error naming the crop count; collect more brass or pull more of
+the dataset from the machine first.</li>
 <li>A full <b>retraining of the embedding network</b> sharpens everything —
 worth doing after the dataset has grown or shifted substantially. On the
 machine, <b>Train models…</b> (Train tab) opens a window that drives the

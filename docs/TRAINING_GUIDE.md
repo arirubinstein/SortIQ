@@ -94,9 +94,26 @@ Two flags that are *not* mislabels, and what to do instead:
   rejects, check the camera before filing anything: a soft batch is
   disposable (discard and re-run the same brass), a soft *dataset* is
   forever.
-- Keep **imaging settings** (crop geometry, camera look) stable across
-  a dataset. If you change them, rebuild crops and rebuild the
-  gallery so training and sorting see the same picture.
+- **Zoom and pan onto the headstamp before you collect a single
+  image.** Push the digital Zoom slider up until the headstamp covers
+  the majority of the frame — a stamp shrunk into a wide shot of the
+  whole case head hands the model too few pixels to tell close dies
+  apart. Use Pan left/right and up/down to re-center the primer once
+  zoomed (pan does nothing below 1× zoom). Set the light ring so the
+  stamped letters read as clear, dark marks against the brass: too
+  bright washes them out in glare, too dim buries them in shadow.
+  Nickel and other reflective cases need the light diffused rather
+  than aimed straight on. Judge it by the "what the model sees" crop
+  preview, not the raw camera view.
+- Keep **imaging settings** (zoom, pan, crop geometry, camera look)
+  stable across a dataset. If you change them, capture a fresh batch
+  and rebuild crops and the gallery so training and sorting see the
+  same picture.
+- A **training run** needs 100+ crops across the *whole dataset* to
+  start at all — a floor on top of, and separate from, any single
+  class's 10-image training threshold. A dataset with only a couple of
+  thin classes can clear every per-class gate and still be too small
+  to start a run; the error names the shortfall.
 - The batch intake filter keeps well-fed classes (500+) from bloating
   with routine look-alikes — it only files what adds information.
   Trust it; hand-picked additions bypass it by design.

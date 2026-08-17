@@ -89,10 +89,27 @@ exam:
   belong to the *model profile*, not the camera, and are always safe to
   change: crops rebuild from the raw images.
 
+**Framing the headstamp — zoom and pan:** the digital **Zoom** slider
+should be pushed up until the headstamp fills most of the frame — a
+tiny stamp lost in a wide shot of the whole case head starves the model
+of the pixels it needs to tell dies apart. Once zoomed in, use **Pan
+left/right** and **Pan up/down** to re-center the primer in frame (pan
+only has something to work with once Zoom is above 1×). Check the "what
+the model sees" preview next to Live view after every adjustment — that
+crop, not the full camera frame, is what gets saved and trained on.
+
+**Brightness:** the **light ring** slider controls the only light this
+matters — brighter isn't automatically better. Aim for a level where the
+stamp's stamped letters and numbers read as crisp, dark marks against
+the brass, with no blown-out glare washing them out and no murky
+underexposed shadow hiding them. Nickel and reflective cases are the
+hardest case: diffuse or lower the light rather than pointing it
+straight on, since direct light glares out exactly the letters you need.
+
 **Consistency matters:** the model learns the camera's exact look, so
-avoid changing optics or lighting mid-dataset. If you change the setup
-meaningfully, capture a fresh batch afterwards and rebuild the gallery so
-the exemplars match what the camera now sees.
+avoid changing optics, zoom/pan, or lighting mid-dataset. If you change
+the setup meaningfully, capture a fresh batch afterwards and rebuild the
+gallery so the exemplars match what the camera now sees.
 
 ---
 
@@ -145,7 +162,12 @@ then:
   sets the URL with one click; works even when `.local` names don't
   resolve.
 - **Train a new model** — a full retraining of the embedding network,
-  run from the mirrored dataset. Pick **GPU** (about an hour, when the
+  run from the mirrored dataset. **Needs 100+ training crops across the
+  whole dataset** — this is a dataset-wide floor, separate from any
+  single class's 10-image training threshold, and a run below it is
+  refused with an error rather than started. Keep collecting on the
+  Collect tab (or **Pull dataset** here) until the trainer PC's copy
+  clears it. Pick **GPU** (about an hour, when the
   trainer PC has the WSL GPU sandbox set up) or **CPU** (an overnight
   job at low priority — the PC stays usable), press Start, and watch
   the two stages: the large teacher network, then the fast student the
