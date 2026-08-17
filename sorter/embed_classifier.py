@@ -178,9 +178,10 @@ class EmbedClassifier:
                 if cur is None:
                     try:
                         cur = sig_p.read_text()
+                        self._crops_sig_cache[sig_p] = cur
                     except OSError:
-                        cur = ""
-                    self._crops_sig_cache[sig_p] = cur
+                        cur = ""   # missing file: DON'T cache the miss —
+                        #             it may be seeded while we're loaded
                 if cur != want:
                     return None
         return self.all_vec[i]

@@ -144,6 +144,14 @@ def rebuild_crops(root, labels=None, incremental=False):
     if labels is None:
         sig_p.parent.mkdir(parents=True, exist_ok=True)
         sig_p.write_text(sig)
+    elif not sig_p.is_file():
+        # partial rebuilds keep crops just as current (an imaging change
+        # always forces a full reshape before any partial can run), so a
+        # machine that predates the signature feature seeds it here —
+        # without the file, a trainer-built vector bank can never be
+        # trusted and every scan pays a full re-embed forever
+        sig_p.parent.mkdir(parents=True, exist_ok=True)
+        sig_p.write_text(_crops_sig(root))
     if stamps is not None and base.is_dir():
         # partial rebuild: report the whole tree, same as a full one
         n_stamp = sum(1 for _ in base.rglob("*.png"))

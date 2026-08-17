@@ -3140,7 +3140,11 @@ def api_code_update():
     # guard existed. Busy means not now.
     busy = ("a sorting run" if run_mgr.status().get("running")
             else "training" if train_status.get("running")
-            else "a gallery rebuild" if _gal_build.get("running") else None)
+            else "a gallery rebuild" if _gal_build.get("running")
+            # scans hold results in memory — the restart wiped a finished
+            # scan's flags once (an auto-deploy raced the user to them)
+            else "a mislabel scan" if _scan_status.get("running")
+            else "a duplicate scan" if _dup_status.get("running") else None)
     if busy:
         return jsonify({"error": f"{busy} is active — updating restarts "
                                  "the app and would kill it; retry when "
