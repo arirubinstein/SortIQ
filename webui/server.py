@@ -4154,7 +4154,11 @@ class RunManager:
             self.stop_evt.clear()
             self._reset()
             self.state["running"] = True
-        if get_shadow() is None:
+        # capture runs never consult the decider for a bin (every case goes
+        # to the catch-all — see below), so a fresh install with no model
+        # yet can still batch-capture its first dataset; only a real
+        # sorting run needs one.
+        if get_shadow() is None and not params.get("capture"):
             with self.lock:
                 self.state["running"] = False
             return ("no embedding model installed (shadow_embed.tflite + "
@@ -4535,9 +4539,12 @@ class RunManager:
                     # "classified" = the model produced a headstamp, even if it
                     # has no bin (no_bin_mapping). Only a genuinely unidentifiable
                     # case is a REJECT worth photographing for review/retraining;
-                    # a recognized-but-unbinned case is not.
+                    # a recognized-but-unbinned case is not. Capture runs are
+                    # never rejects either — every case (no_model included)
+                    # goes to the catch-all and gets reviewed as a normal card,
+                    # not the reject pile.
                     classified = d.reason in ("ok", "no_bin_mapping")
-                    is_reject = not classified
+                    is_reject = not classified and not self.capture
                     category = d.stamp if classified else "unmatched"
                     entry = {"n": n, "bin": slot, "category": category,
                              "stamp": d.stamp,
@@ -4578,9 +4585,10 @@ class RunManager:
                             # the whole frame
                             crop = imaging.head_view(frame, center=ctr)
                             thumb = b64_jpg(crop, max_side=200)
-                            if classified:
+                            if classified or self.capture:
                                 # rejects keep full frames for review; good
-                                # cases get a small thumb for the run report
+                                # cases (and every capture-run case) get a
+                                # small thumb for the review/report grid
                                 h, w = crop.shape[:2]
                                 sc = 200 / max(h, w, 1)
                                 cv2.imwrite(str(thumbs_dir / f"{n:04d}.jpg"),
