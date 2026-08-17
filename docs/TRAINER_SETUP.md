@@ -16,43 +16,41 @@ workflow is two tabs: the machine's app for collecting and sorting, and
 
 ### Windows 11
 
-1. Install **Python 3.12** — not the newest version python.org offers.
-   TensorFlow ships wheels for a limited range of Python versions, and the
-   latest Python is usually ahead of it ("could not find a distribution
-   for tensorflow" means exactly this).
-
-   Download and run this installer:
-   <https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe>
-   — check **"Add python.exe to PATH"** during install. Other Pythons
-   already on the PC are fine; they can coexist.
-   (If you use the Python Install Manager instead: `py install 3.12`.)
+1. Install **[uv](https://docs.astral.sh/uv/)** — it manages Python itself,
+   so you don't hand-pick a version:
+   ```bat
+   winget install --id=astral-sh.uv -e
+   ```
+   (No winget? `powershell -c "irm https://astral.sh/uv/install.ps1 | iex"`.)
+   Close and reopen your terminal afterwards so `uv` is on PATH.
 2. Get the SortIQ repo (Git or a source zip). A GitHub zip extracts to a
    folder named `SortIQ-master` — and Windows "Extract All" often nests it
    (`SortIQ-master\SortIQ-master`). Open a terminal **in the folder where
-   `dir` shows `requirements.txt`**; every command below runs from there.
+   `dir` shows `pyproject.toml`**; every command below runs from there.
 3. ```bat
-   py -3.12 -m venv .venv
-   .venv\Scripts\pip install -r requirements.txt
+   uv run webui\server.py --port 5000
    ```
-   (`py -3.12` matters: plain `python` may resolve to a newer install.
-   If `py -3.12` isn't accepted, use `py -V:3.12`.) The TensorFlow
-   download is a few hundred MB — give it a few minutes.
-4. Start the app:
-   ```bat
-   .venv\Scripts\python webui\server.py --port 5000
-   ```
+   One command does the whole install: uv fetches Python 3.12 (TensorFlow
+   ships wheels for a limited range of Python versions, so uv pins to the
+   one `pyproject.toml` asks for instead of whatever's newest), creates
+   `.venv`, installs the locked dependencies — a few hundred MB, give it a
+   few minutes the first time — then starts the app.
+
    The first launch may trigger a Windows Firewall prompt — allow access
    on private networks so the trainer can reach the machine.
-5. Browse to `http://localhost:5000` → **Train**.
-6. **Recommended — make it hands-free:** in File Explorer, open the
+
+   (To just install without starting the server — e.g. before step 5 below
+   — run `uv sync` instead.)
+4. Browse to `http://localhost:5000` → **Train**.
+5. **Recommended — make it hands-free:** in File Explorer, open the
    `tools` folder inside the SortIQ folder and double-click
    **`trainer_autostart_windows.bat`**. The trainer server then starts
-   silently every time you log in (no console window), so steps 4–5
+   silently every time you log in (no console window), so steps 3–4
    never happen again: the machine's Train page simply finds the trainer
    whenever this PC is on. Undo any time by running the same file from a
    terminal with `remove`:
    `tools\trainer_autostart_windows.bat remove`.
-7. **Also recommended — the watchdog:** double-click
+6. **Also recommended — the watchdog:** double-click
    **`trainer_watchdog_windows.bat`** in the same folder. It installs a
    scheduled task that checks every 2 minutes and silently relaunches
    the trainer if it has stopped (background servers do occasionally
@@ -64,17 +62,20 @@ Note on GPUs: recent TensorFlow has no native Windows GPU support, so
 the trainer offers two ways to run a full retraining. **CPU** works out
 of the box — an overnight job at low priority, the PC stays usable.
 **GPU** cuts that to about an hour but needs a one-time WSL2 (Ubuntu)
-setup with `pip install tensorflow[and-cuda]` in a venv at
-`/opt/sortiq-gpu312`; once present, the Train page probes it at startup
-and offers it as a choice. Day-to-day dataset growth needs neither —
-gallery rebuilds are minutes on CPU.
+setup with uv at `/opt/sortiq-gpu312`:
+```sh
+uv venv --python 3.12 /opt/sortiq-gpu312
+uv pip install --python /opt/sortiq-gpu312 "tensorflow[and-cuda]"
+```
+once present, the Train page probes it at startup and offers it as a
+choice. Day-to-day dataset growth needs neither — gallery rebuilds are
+minutes on CPU.
 
 ### macOS / Linux
 
 ```sh
-python3 -m venv .venv           # needs 3.10+; 3.12 recommended (TensorFlow
-.venv/bin/pip install -r requirements.txt      # wheels lag new Pythons)
-.venv/bin/python webui/server.py --port 5000
+curl -LsSf https://astral.sh/uv/install.sh | sh   # or: brew install uv
+uv run webui/server.py --port 5000                # uv handles Python 3.12 + deps
 ```
 
 ## Using it
@@ -120,7 +121,13 @@ the version, no git involved), and the two Train UIs compare them:
   Config, the dataset mirror, trained models, logs, and the venv are
   never touched.
 
-Two things to know:
+Three things to know:
+
+- If the update pulls a changed `uv.lock` (a dependency version moved),
+  `uv run` picks that up on its own next launch — a trainer started with
+  `uv run webui\server.py` (or the autostart shortcut, which launches
+  `.venv`'s Python directly) needs one manual `uv sync` in the SortIQ
+  folder to install the new packages before restarting.
 
 - The very first check after installing this feature may report that
   *every* file differs — line endings (a Windows zip vs the machine's

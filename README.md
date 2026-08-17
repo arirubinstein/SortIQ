@@ -53,13 +53,12 @@ as 3 photos).
 - **Set up the machine (Pi):** [docs/PI_SETUP.md](docs/PI_SETUP.md) — flash
   a card, run `tools/pi_deploy.sh`, plug in the board and camera.
 - **Set up the trainer PC:** [docs/TRAINER_SETUP.md](docs/TRAINER_SETUP.md)
-  — venv + `requirements.txt`, point it at the machine (or click *Find
-  machine* — it scans the network), *Pull dataset*.
-- **No hardware yet?** The app runs anywhere Python does:
+  — install [uv](https://docs.astral.sh/uv/), one `uv run`, point it at the
+  machine (or click *Find machine* — it scans the network), *Pull dataset*.
+- **No hardware yet?** The app runs anywhere uv does:
 
   ```bash
-  python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-  .venv/bin/python webui/server.py        # http://localhost:5000
+  uv run webui/server.py        # http://localhost:5000
   ```
 
   The Machine tab can connect a **simulated CS7.2 board** (an event-level
@@ -112,6 +111,9 @@ calibers/         per-caliber/model profiles: dataset, crops, trained models
 docs/             QUICK_START.md, USER_MANUAL.md, PI_SETUP.md,
                   TRAINER_SETUP.md
 config.json       global settings (camera, serial, active profile pointer)
+pyproject.toml    dependencies + uv.lock are authoritative (uv run / uv sync);
+uv.lock           requirements.txt is a plain-pip fallback kept in step —
+requirements.txt  whoever bumps one bumps both
 ```
 
 ## Security model — read before exposing anything

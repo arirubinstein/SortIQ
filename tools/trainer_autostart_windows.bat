@@ -20,7 +20,7 @@ if /i "%~1"=="remove" (
 
 if not exist ".venv\Scripts\pythonw.exe" (
     echo No .venv found next to this script's parent folder.
-    echo Finish the one-time setup in docs\TRAINER_SETUP.md first.
+    echo Run "uv sync" in the SortIQ folder first ^(see docs\TRAINER_SETUP.md^).
     pause
     exit /b 1
 )

@@ -73,8 +73,8 @@ manual naming — it gets easier immediately after the first training.
 
 ## Step 5 — Set up the trainer + first training (~15 min setup, ~1 h training)
 
-1. On your PC/Mac: [TRAINER_SETUP.md](TRAINER_SETUP.md) (a venv and one
-   `pip install`; optional WSL GPU setup makes training ~12× faster).
+1. On your PC/Mac: [TRAINER_SETUP.md](TRAINER_SETUP.md) (install uv, then one
+   `uv run`; optional WSL GPU setup makes training ~12× faster).
 2. On the **machine's** Train tab, press **Train models…** — the window
    finds the trainer on the PC you're browsing from and walks the whole
    flow: **sync → pick GPU or CPU → progress → bench numbers → Install**.

@@ -1,4 +1,6 @@
 # PC (development / training)
+# pyproject.toml + uv.lock are authoritative for the trainer (uv run / uv sync);
+# this file is kept in step as a plain-pip fallback.
 tensorflow>=2.16
 opencv-python
 numpy
