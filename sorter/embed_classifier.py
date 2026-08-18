@@ -244,6 +244,9 @@ class EmbedDecider:
         if ex["sharpness"] < f["sharpness"]:
             return done(Decision(rej, reason="blurry"))
 
+        if self.ec is None:          # no model installed: capture runs
+            return done(Decision(rej, reason="no_model"))
+
         head = imaging.crop_head(frame, center=center)
         r = self.ec.predict(head)
         stamp, sim = r["stamp"], r["sim"]
