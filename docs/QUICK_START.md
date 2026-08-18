@@ -51,6 +51,11 @@ you ship updates. Details: [PI_SETUP.md](PI_SETUP.md) Part B.
    values.
 2. **Collect tab → Camera setup**: aim and focus the camera using the
    live sharpness number, set the light ring, and **save a preset**.
+   Push **digital Zoom** up until the headstamp fills most of the frame
+   (a small stamp in a wide shot starves the model of pixels), use
+   **Pan** to re-center it, and set **Brightness** so the stamped
+   letters read as crisp dark marks with no washed-out glare or murky
+   shadow — check the "what the model sees" preview after each tweak.
 3. **Test feed** a few cases from the Machine tab. If captures blur,
    nudge Notification Delay up in +20 ms steps.
 
@@ -67,9 +72,11 @@ manual naming — it gets easier immediately after the first training.
    machine photographs every case at full speed. When it finishes, the
    review shows your cases grouped by looks; type the headstamp name on
    the group and file it. Repeat per pile.
-3. Aim for **25–50 images per class** to start (10+ is the training
-   minimum, 3+ makes a class sortable at all). More is better; you'll
-   grow them for weeks.
+3. Aim for **25–50 images per class** to start (10+ is the per-class
+   training minimum, 3+ makes a class sortable at all). More is better;
+   you'll grow them for weeks. Training a model also needs **100+
+   images across the whole dataset** — a handful of classes at 25–50
+   each clears that easily, but a single thin class won't.
 
 ## Step 5 — Set up the trainer + first training (~15 min setup, ~1 h training)
 
